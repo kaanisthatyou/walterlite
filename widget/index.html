@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>WALTER/lite</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 220px;
+      height: 110px;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    .widget {
+      width: 220px;
+      height: 110px;
+      background: #111;
+      border: 1px solid #222;
+      font-family: 'Courier New', Courier, monospace;
+      -webkit-app-region: drag;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 9px 12px 8px;
+      transition: border-color 0.4s;
+    }
+
+    .row-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .title {
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: 1.5px;
+      color: #f0a500;
+    }
+
+    .title-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    .settings-btn {
+      cursor: pointer;
+      font-size: 12px;
+      color: #2a2a2a;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .settings-btn:hover { color: #f0a500; }
+
+    .close-btn {
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      font-size: 15px;
+      color: #2e2e2e;
+      line-height: 1;
+      padding: 0 1px;
+      transition: color 0.15s;
+    }
+    .close-btn:hover { color: #555; }
+
+    .row-mid {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #1e2e1e;
+      transition: background 0.3s;
+    }
+
+    .status-label {
+      font-size: 10px;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: #2e2e2e;
+      transition: color 0.3s;
+    }
+
+    .row-bot {
+      font-size: 9px;
+      letter-spacing: 0.4px;
+      color: #222;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      height: 11px;
+      transition: color 0.3s;
+    }
+
+    .row-nav {
+      display: flex;
+      gap: 4px;
+      -webkit-app-region: no-drag;
+    }
+
+    .nav-btn {
+      flex: 1;
+      background: #161616;
+      border: 1px solid #242424;
+      color: #383838;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 8px;
+      letter-spacing: 0.8px;
+      padding: 3px 0;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+    .nav-btn:hover {
+      border-color: #f0a500;
+      color: #f0a500;
+      background: #1a1500;
+    }
+    .nav-btn:active { background: #2a1e00; }
+
+    .nav-btn--write {
+      border-color: #1e2e1e;
+      color: #2e4a2e;
+    }
+    .nav-btn--write:hover {
+      border-color: #3dff7a;
+      color: #3dff7a;
+      background: #001a0a;
+    }
+
+    .nav-btn--mic {
+      border-color: #3a0000;
+      color: #5a2020;
+    }
+    .nav-btn--mic:hover, .nav-btn--mic.recording {
+      border-color: #ff4444;
+      color: #ff4444;
+      background: #1a0000;
+    }
+    .nav-btn--mic.recording {
+      animation: blink 0.4s infinite;
+    }
+
+    /* ── state classes ── */
+    .s-idle .dot         { background: #1e2e1e; }
+    .s-idle .status-label{ color: #2e2e2e; }
+    .s-idle .row-bot     { color: #202020; }
+    .s-idle              { border-color: #1a1a1a; }
+
+    .s-receiving .dot          { background: #f0a500; animation: blink .65s infinite; }
+    .s-receiving .status-label { color: #f0a500; }
+    .s-receiving .row-bot      { color: #6a5010; }
+    .s-receiving               { border-color: #3a2800; }
+
+    .s-processing .dot          { background: #4a9eff; animation: blink .38s infinite; }
+    .s-processing .status-label { color: #4a9eff; }
+    .s-processing .row-bot      { color: #1a4070; }
+    .s-processing               { border-color: #0a2040; }
+
+    .s-typing .dot          { background: #3dff7a; animation: blink .22s infinite; }
+    .s-typing .status-label { color: #3dff7a; }
+    .s-typing .row-bot      { color: #1a5030; }
+    .s-typing               { border-color: #0a3020; }
+
+    .s-error .dot          { background: #ff4444; }
+    .s-error .status-label { color: #ff4444; }
+    .s-error .row-bot      { color: #601010; }
+    .s-error               { border-color: #3a0808; }
+
+    .s-listening .dot          { background: #ff4444; animation: pulse 0.5s ease-in-out infinite; }
+    .s-listening .status-label { color: #ff4444; }
+    .s-listening .row-bot      { color: #601010; }
+    .s-listening               { border-color: #5a0808; }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.1; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1);   opacity: 1; }
+      50%       { transform: scale(1.8); opacity: 0.6; }
+    }
+  </style>
+</head>
+<body>
+  <div class="widget s-idle" id="widget">
+    <div class="row-top">
+      <span class="title">WALTER/lite</span>
+      <div class="title-actions">
+        <span class="settings-btn" id="settingsBtn">⚙</span>
+        <span class="close-btn"    id="closeBtn">×</span>
+      </div>
+    </div>
+    <div class="row-mid">
+      <div class="dot"></div>
+      <span class="status-label" id="statusLabel">IDLE</span>
+    </div>
+    <div class="row-bot" id="preview"></div>
+    <div class="row-nav">
+      <button class="nav-btn"            data-target="claude">CLU</button>
+      <button class="nav-btn"            data-target="obsidian">OBS</button>
+      <button class="nav-btn"            data-target="gemini">GEM</button>
+      <button class="nav-btn nav-btn--write" data-target="write">WRT</button>
+      <button class="nav-btn nav-btn--mic"   id="micBtn">MIC</button>
+    </div>
+  </div>
+
+  <script>
+    const widget      = document.getElementById('widget');
+    const statusLabel = document.getElementById('statusLabel');
+    const preview     = document.getElementById('preview');
+    const micBtn      = document.getElementById('micBtn');
+
+    document.getElementById('closeBtn').addEventListener('click', () => window.walter.closeApp());
+    document.getElementById('settingsBtn').addEventListener('click', () => window.walter.openSettings());
+
+    document.querySelectorAll('.nav-btn[data-target]').forEach(btn => {
+      btn.addEventListener('click', () => window.walter.switchWindow(btn.dataset.target));
+    });
+
+    const LABELS = {
+      idle:       'IDLE',
+      receiving:  'RECEIVING',
+      processing: 'PROCESSING',
+      typing:     'TYPING',
+      error:      'ERROR',
+      listening:  'LISTENING',
+    };
+
+    window.walter.onStatus(({ state, text }) => {
+      widget.className = `widget s-${state}`;
+      statusLabel.textContent = LABELS[state] || state.toUpperCase();
+      preview.textContent = text || '';
+      // Clear mic recording indicator when main process takes over status
+      if (state !== 'listening') micBtn.classList.remove('recording');
+    });
+
+    // ── Local mic recording with silence-detection auto-stop ─────────────────
+    let mediaRecorder  = null;
+    let audioChunks    = [];
+    let isRecording    = false;
+    let audioCtx       = null;
+    let silenceTimer   = null;
+    let maxTimer       = null;
+
+    const SILENCE_MS        = 1400;  // stop after this many ms of silence
+    const SILENCE_THRESHOLD = 8;     // FFT average amplitude (0–255) below this = silence
+    const MAX_RECORD_MS     = 30000; // hard cap
+
+    function resetSilenceTimer(analyser, dataArray) {
+      if (!isRecording) return;
+      analyser.getByteFrequencyData(dataArray);
+      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+
+      if (avg < SILENCE_THRESHOLD) {
+        if (!silenceTimer) {
+          silenceTimer = setTimeout(() => { if (isRecording) stopRecording(); }, SILENCE_MS);
+        }
+      } else {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+      requestAnimationFrame(() => resetSilenceTimer(analyser, dataArray));
+    }
+
+    async function startRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        audioChunks   = [];
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+        mediaRecorder.start();
+        isRecording = true;
+        micBtn.classList.add('recording');
+        widget.className        = 'widget s-listening';
+        statusLabel.textContent = 'LISTENING';
+        preview.textContent     = 'speak now…';
+
+        // Silence detection via Web Audio API
+        audioCtx = new AudioContext();
+        const analyser  = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        const source    = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        silenceTimer = null;
+        requestAnimationFrame(() => resetSilenceTimer(analyser, dataArray));
+
+        // Hard cap safety net
+        maxTimer = setTimeout(() => { if (isRecording) stopRecording(); }, MAX_RECORD_MS);
+      } catch (err) {
+        isRecording = false;
+        widget.className        = 'widget s-error';
+        statusLabel.textContent = 'MIC ERROR';
+        preview.textContent     = err.message.slice(0, 36);
+        setTimeout(() => { widget.className = 'widget s-idle'; statusLabel.textContent = 'IDLE'; preview.textContent = ''; }, 3000);
+      }
+    }
+
+    function stopRecording() {
+      if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+      isRecording = false;
+      clearTimeout(silenceTimer); silenceTimer = null;
+      clearTimeout(maxTimer);     maxTimer     = null;
+      if (audioCtx) { audioCtx.close(); audioCtx = null; }
+      micBtn.classList.remove('recording');
+      widget.className        = 'widget s-processing';
+      statusLabel.textContent = 'PROCESSING';
+      preview.textContent     = 'sending to Groq…';
+
+      mediaRecorder.onstop = async () => {
+        const blob        = new Blob(audioChunks, { type: 'audio/webm' });
+        const arrayBuffer = await blob.arrayBuffer();
+        window.walter.sendAudio(new Uint8Array(arrayBuffer));
+        mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        mediaRecorder = null;
+      };
+      mediaRecorder.stop();
+    }
+
+    async function toggleRecording() {
+      if (!isRecording) await startRecording();
+      else stopRecording();
+    }
+
+    micBtn.addEventListener('click', toggleRecording);
+    window.walter.onToggleRecording(toggleRecording);
+  </script>
+</body>
+</html>

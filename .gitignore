@@ -1,0 +1,5 @@
+node_modules/
+.env
+*.ogg
+*.png
+walter_memory.json
