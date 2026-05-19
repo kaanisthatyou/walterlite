@@ -10,6 +10,7 @@ const { scanPath, scanPage }                  = require('./tool_scan');
 const {
   startSession, executeStep, saveRecording, replayRecording, stopSession, domInspect,
 } = require('../playwright-session');
+const { uiClick, uiRead }                            = require('../ui-automation');
 const { switchTo }                            = require('../windows');
 const { sendHotkey }                          = require('../keyboard');
 const { injectText }                          = require('../inject');
@@ -44,6 +45,8 @@ const TOOL_REGISTRY = {
   setup_firefox_cdp:    ()                 => setupFirefoxCDP(),
   dom_inspect:          ()                 => domInspect(),
   dom_scan_prefix:      ({ name })         => domInspect({ save_as_prefix: name }),
+  ui_click:             ({ text })         => uiClick(text),
+  ui_read:              ({ window })       => uiRead(window),
 };
 
 module.exports = { TOOL_REGISTRY };
