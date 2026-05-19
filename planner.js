@@ -46,6 +46,8 @@ TOOLS:
   dom_scan_prefix(name)        scans the current tab's DOM and saves interactive elements as a named prefix macro set (e.g. name="HBYS" → creates HBYS prefix with button macros)
   ui_click(text)          clicks any native Windows UI element (button, checkbox, menu item) by its visible label — works in any app, not just browsers
   ui_read(window)         lists all visible interactive elements in a native Windows window by title — call before ui_click to discover element names
+  analyze_screen(question)     takes a screenshot and asks Gemini vision what is on screen — answers any question about visible content, errors, or UI state
+  vision_click(description)    takes a screenshot, uses Gemini vision to find element by visual description, and clicks it — use when DOM strategies fail or for non-browser screens
 
 RULES:
 0. MEMORY FIRST: Before web_search for any channel URL, app path, or site URL, call recall with the matching key. If recall returns a non-null value, use it directly and skip the search steps. Mark search steps with "skip_if": "context.KEY" so the orchestrator skips them when that context key is already filled.
@@ -151,7 +153,13 @@ User: "Tamam butonuna tıkla" or "Click the OK button" (native Windows dialog)
 {"intent":"click_native_button","execution_plan":[{"step":1,"tool":"ui_click","parameters":{"text":"Tamam"},"reason":"click native Windows element by label via UI Automation"}]}
 
 User: "bu pencerede ne var" or "what buttons are here" (inspect native UI)
-{"intent":"inspect_native_ui","execution_plan":[{"step":1,"tool":"ui_read","parameters":{"window":""},"reason":"list all visible interactive elements in the foreground window"}]}`;
+{"intent":"inspect_native_ui","execution_plan":[{"step":1,"tool":"ui_read","parameters":{"window":""},"reason":"list all visible interactive elements in the foreground window"}]}
+
+User: "ekranda ne var" or "what do you see on screen" or "describe the screen"
+{"intent":"analyze_screen","execution_plan":[{"step":1,"tool":"analyze_screen","parameters":{"question":"What is currently visible on the screen? Describe all visible UI elements, text, and state in detail."},"store_as":"context.answer","reason":"capture and describe current screen state using Gemini vision"}]}
+
+User: "kaydet butonuna tıkla" when DOM click fails, or "vision ile tıkla: Submit button"
+{"intent":"vision_click_element","execution_plan":[{"step":1,"tool":"vision_click","parameters":{"description":"Kaydet / Save button"},"reason":"use Gemini vision to find and click element by visual description when DOM targeting is unavailable"}]}`;
 
 function parseJSON(str) {
   try { return JSON.parse(str.trim()); } catch {}
