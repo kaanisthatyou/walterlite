@@ -10,6 +10,7 @@ const FIREFOX_PATH = process.env.FIREFOX_PATH || 'C:\\Program Files\\Mozilla Fir
 function normalizeUrl(raw) {
   const s = (raw || '').trim();
   if (/^https?:\/\//i.test(s)) return s;
+  if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(s)) return s;
   if (/^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(s) || /^localhost(:\d+)?(\/|$)/i.test(s)) {
     return `http://${s}`;
   }
@@ -64,12 +65,13 @@ async function openUrl(rawUrl) {
   const url = normalizeUrl(rawUrl.trim());
 
   // Bare-domain guard: skip for local IPs/ports (user typed it explicitly).
-  // For public URLs, reject bare domains with no path — likely an extraction failure.
+  // For public URLs, reject bare video domains with no path — likely an extraction failure.
+  const VIDEO_DOMAINS = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|vimeo\.com)(\/|$)/i;
   if (!isLocalAddress(url)) {
     try {
       const u = new URL(url);
-      if ((u.pathname === '' || u.pathname === '/') && !u.search && !u.hash) {
-        throw new Error(`open_url: "${url}" is a bare domain with no path — video URL extraction failed`);
+      if (VIDEO_DOMAINS.test(url) && (u.pathname === '' || u.pathname === '/') && !u.search && !u.hash) {
+        throw new Error(`open_url: "${url}" is a bare video domain with no path — URL extraction failed`);
       }
     } catch (e) {
       if (e.message.startsWith('open_url:')) throw e;
