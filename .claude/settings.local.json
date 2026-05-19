@@ -1,16 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm outdated *)",
-      "PowerShell(Get-Process | Where-Object { $_.MainWindowTitle -ne '' } | Select-Object Name, Id, MainWindowTitle | Format-Table -AutoSize)",
-      "PowerShell(Get-ChildItem C:\\\\Users\\\\ADAS\\\\Desktop\\\\walterlite -File | Where-Object { $_.Extension -in '.js','.md','.json','.html' } | Select-Object Name)",
-      "PowerShell(Get-ChildItem C:\\\\Users\\\\ADAS\\\\Desktop\\\\walterlite -File -Recurse -Depth 2 | Where-Object { $_.Extension -in '.js','.md','.json','.html' -and $_.FullName -notmatch 'node_modules' } | Select-Object FullName)",
-      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\ADAS\\\\Desktop\\\\walterlite\" -Recurse -Depth 2 | Where-Object { -not $_.PSIsContainer -and $_.FullName -notmatch 'node_modules' } | Select-Object FullName)",
-      "Skill(update-config)",
-      "PowerShell(git *)",
-      "PowerShell(gh auth *)",
-      "Bash(dir C:\\\\Users\\\\ADAS\\\\Desktop\\\\walterlite /b)",
-      "Bash(node *)"
+      "Bash(git clone:*)",
+      "Bash(npm install:*)",
+      "Bash(node:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
