@@ -30,7 +30,7 @@ let sessionActive   = false;
 async function isBrowserRunning() {
   let detected;
   try { detected = browserDetector.best(); } catch { return false; }
-  const processName = require('path').basename(detected.exePath, '.exe').toLowerCase();
+  const processName = detected.processName;
   const out = await runPS(
     `(Get-Process ${processName} -ErrorAction SilentlyContinue | Measure-Object).Count`
   ).catch(() => '0');
@@ -48,11 +48,9 @@ async function acquireContext() {
   } catch {}
 
   // 2. Connect via CDP (browser running with --remote-debugging-port=9222)
+  // CDP is Chromium-only — always use chromium API regardless of detected browser
   try {
-    let detected;
-    try { detected = browserDetector.best(); } catch { detected = null; }
-    const pw = (detected?.api === 'firefox') ? firefox : chromium;
-    const browser = await pw.connectOverCDP('http://localhost:9222', { timeout: 2000 });
+    const browser = await chromium.connectOverCDP('http://localhost:9222', { timeout: 2000 });
     const contexts = browser.contexts();
     return contexts.length > 0 ? contexts[0] : await browser.newContext();
   } catch {}

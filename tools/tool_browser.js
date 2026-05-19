@@ -92,9 +92,7 @@ async function openUrl(rawUrl) {
   // Win32 fallback: use browser-detector to find and navigate the browser
   let detected;
   try { detected = require('../browser-detector').best(); } catch { detected = null; }
-  const processName = detected
-    ? require('path').basename(detected.exePath, '.exe').toLowerCase()
-    : 'chrome';
+  const processName = detected ? detected.processName : 'chrome';
 
   const count = await runPS(
     `(Get-Process ${processName} -ErrorAction SilentlyContinue | Measure-Object).Count`

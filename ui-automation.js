@@ -13,7 +13,14 @@ $cond   = New-Object System.Windows.Automation.PropertyCondition(
   $target,
   [System.Windows.Automation.PropertyConditionFlags]::IgnoreCase
 )
-$el = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+# Search foreground window first, fall back to full desktop
+$fg  = $null
+try {
+  $hWnd  = (Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();' -Name FG -Namespace W -PassThru)::GetForegroundWindow()
+  $fg    = [System.Windows.Automation.AutomationElement]::FromHandle($hWnd)
+} catch {}
+$el = if ($fg) { $fg.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond) } else { $null }
+if (-not $el) { $el = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond) }
 if (-not $el) { throw "UI element not found: $target" }
 
 # Try InvokePattern first (buttons, menu items)
@@ -45,7 +52,7 @@ public class UIAC {
 // Lists all visible interactive elements in a window (or foreground if no title given).
 // Call this before ui_click to see what element names are available.
 async function uiRead(windowTitle) {
-  const scope = windowTitle
+  const scope = (windowTitle && windowTitle.trim())
     ? `$titleCond = New-Object System.Windows.Automation.PropertyCondition(
   [System.Windows.Automation.AutomationElement]::NameProperty,
   [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(windowTitle || '', 'utf8').toString('base64')}')),

@@ -12,6 +12,7 @@ const BROWSER_DEFS = [
   {
     name: 'chrome',
     api: 'chromium',
+    processName: 'chrome',
     exePaths: [
       path.join(LOCAL, 'Google', 'Chrome', 'Application', 'chrome.exe'),
       path.join(PF,   'Google', 'Chrome', 'Application', 'chrome.exe'),
@@ -23,6 +24,7 @@ const BROWSER_DEFS = [
   {
     name: 'edge',
     api: 'chromium',
+    processName: 'msedge',
     exePaths: [
       path.join(PF86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
       path.join(PF,   'Microsoft', 'Edge', 'Application', 'msedge.exe'),
@@ -34,6 +36,7 @@ const BROWSER_DEFS = [
   {
     name: 'opera_gx',
     api: 'chromium',
+    processName: 'opera',
     exePaths: [
       path.join(LOCAL, 'Programs', 'Opera GX', 'launcher.exe'),
       path.join(LOCAL, 'Programs', 'Opera GX', 'opera.exe'),
@@ -44,6 +47,7 @@ const BROWSER_DEFS = [
   {
     name: 'brave',
     api: 'chromium',
+    processName: 'brave',
     exePaths: [
       path.join(LOCAL, 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'),
       path.join(PF,   'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'),
@@ -54,10 +58,12 @@ const BROWSER_DEFS = [
   {
     name: 'firefox',
     api: 'firefox',
+    processName: 'firefox',
     exePaths: [
+      process.env.FIREFOX_PATH,
       path.join(PF,   'Mozilla Firefox', 'firefox.exe'),
       path.join(PF86, 'Mozilla Firefox', 'firefox.exe'),
-    ],
+    ].filter(Boolean),
     profileBase: path.join(APPDATA, 'Mozilla', 'Firefox', 'Profiles'),
     profileSub:  null, // requires special finder
   },
@@ -85,7 +91,11 @@ function resolveProfile(def) {
 // Returns ordered list of installed browsers. Cached to memory after first run.
 function detect() {
   const cached = memory.get('system', '__browsers');
-  if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+  if (cached && Array.isArray(cached) && cached.length > 0) {
+    if (fs.existsSync(cached[0].exePath)) return cached;
+    // Stale cache — re-scan
+    memory.set('system', '__browsers', null);
+  }
 
   const found = [];
   for (const def of BROWSER_DEFS) {
@@ -94,6 +104,7 @@ function detect() {
     found.push({
       name:        def.name,
       api:         def.api,
+      processName: def.processName,
       exePath,
       profilePath: resolveProfile(def),
     });
