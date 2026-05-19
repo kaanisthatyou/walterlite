@@ -125,7 +125,7 @@ Build order: 1 → 2 → 3 → 4 → 5. Sub-projects 1 and 3 can be built in par
 | `TELEGRAM_BOT_TOKEN` | Yes | Bot token from @BotFather |
 | `ALLOWED_USER_ID` | Yes | Your Telegram numeric ID |
 | `GROQ_API_KEY` | Yes | Groq (free at groq.com) — LLM + STT |
-| `VISION_MODEL` | No | Vision model for analyze_screen/vision_click. Default: `meta-llama/llama-4-scout-17b-16e-instruct` (Groq, uses GROQ_API_KEY) |
+| `GEMINI_API_KEY` | Sub-project 2+ | Google AI Studio (free, no CC needed) — used for vision (analyze_screen, vision_click) |
 | `VOICE_HOTKEY` | No | Default: Ctrl+Shift+Space |
 
 ---

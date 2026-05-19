@@ -105,33 +105,34 @@ async function generateImage(prompt) {
   return null;
 }
 
-// Vision via Groq (Llama 4 Scout) — uses the existing GROQ_API_KEY, no extra setup.
 async function askGeminiVision(prompt, imagePath) {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.warn('[vision] GROQ_API_KEY not set — skipping vision call');
+    console.warn('[askGeminiVision] GEMINI_API_KEY not set — skipping vision call');
     return null;
   }
   const fs = require('fs');
   const base64 = fs.readFileSync(imagePath).toString('base64');
-  const { OpenAI } = require('openai');
-  const client = new OpenAI({
-    apiKey,
-    baseURL: 'https://api.groq.com/openai/v1',
-  });
-  const model = process.env.VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct';
-  const res = await client.chat.completions.create({
-    model,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: `data:image/png;base64,${base64}` } },
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const body = {
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: 'image/png', data: base64 } },
       ],
     }],
-    max_tokens: 1024,
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
-  return res.choices?.[0]?.message?.content ?? null;
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini vision API error ${res.status}: ${errText}`);
+  }
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
 }
 
 module.exports = { askClaude, askGemini, generateImage, cleanPrompt, askGeminiVision };
