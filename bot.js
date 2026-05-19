@@ -10,6 +10,7 @@ const { captureScreen }   = require('./system');
 const session             = require('./session');
 const registry            = require('./prefix-registry');
 const { advanceMacro }    = require('./macro-runner');
+const conversation        = require('./conversation');
 
 const TELEGRAM_MAX = 4000;
 
@@ -212,9 +213,14 @@ function startBot(notify) {
       const result = await execute(text, { notify: tgNotify, submit: true });
       notify('status', { state: 'idle' });
       await sendResult(ctx, result);
+      conversation.push('user', text);
+      const assistantContent = result?.photo ? (result.caption || '(screenshot)') : (result?.text || String(result || ''));
+      conversation.push('assistant', assistantContent);
     } catch (err) {
       notify('status', { state: 'error', text: err.message.slice(0, 32) });
       await ctx.reply(`✗ ${err.message}`);
+      conversation.push('user', text);
+      conversation.push('assistant', `Error: ${err.message}`);
       const ssPath = await captureScreen().catch(() => null);
       if (ssPath) {
         await ctx.replyWithPhoto(Input.fromLocalFile(ssPath)).catch(() => {});
@@ -239,9 +245,14 @@ function startBot(notify) {
       const result = await execute(text, { notify: tgNotify, submit: true });
       notify('status', { state: 'idle' });
       await sendResult(ctx, result);
+      conversation.push('user', text);
+      const assistantContent = result?.photo ? (result.caption || '(screenshot)') : (result?.text || String(result || ''));
+      conversation.push('assistant', assistantContent);
     } catch (err) {
       notify('status', { state: 'error', text: err.message.slice(0, 32) });
       await ctx.reply(`✗ ${err.message}`);
+      conversation.push('user', text || '(voice)');
+      conversation.push('assistant', `Error: ${err.message}`);
       const ssPath = await captureScreen().catch(() => null);
       if (ssPath) {
         await ctx.replyWithPhoto(Input.fromLocalFile(ssPath)).catch(() => {});
