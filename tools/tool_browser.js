@@ -3,8 +3,6 @@ const { switchTo }   = require('../windows');
 const { sendHotkey } = require('../keyboard');
 const { pasteText }  = require('../inject');
 
-const FIREFOX_PATH = process.env.FIREFOX_PATH || 'C:\\Program Files\\Mozilla Firefox\\firefox.exe';
-
 // Ensures any URL string has a protocol so new URL() can parse it.
 // Bare IP:port and localhost → http, everything else → https.
 function normalizeUrl(raw) {
@@ -91,22 +89,33 @@ async function openUrl(rawUrl) {
     // Playwright not reachable — fall through to Win32
   }
 
-  // Win32 fallback: paste URL into Firefox address bar
+  // Win32 fallback: use browser-detector to find and navigate the browser
+  let detected;
+  try { detected = require('../browser-detector').best(); } catch { detected = null; }
+  const processName = detected
+    ? require('path').basename(detected.exePath, '.exe').toLowerCase()
+    : 'chrome';
+
   const count = await runPS(
-    '(Get-Process firefox -ErrorAction SilentlyContinue | Measure-Object).Count'
+    `(Get-Process ${processName} -ErrorAction SilentlyContinue | Measure-Object).Count`
   ).catch(() => '0');
 
   if (parseInt(count.trim(), 10) > 0) {
-    await switchTo('firefox');
+    await switchTo(processName);
     await new Promise(r => setTimeout(r, 500));
     await sendHotkey('ctrl+l');
     await new Promise(r => setTimeout(r, 400));
     await pasteText(url, { submit: true });
-  } else {
-    const escaped = url.replace(/'/g, "''");
-    await runPS(`Start-Process "${FIREFOX_PATH}" -ArgumentList '${escaped}'`);
+  } else if (detected) {
+    const escaped = detected.exePath.replace(/'/g, "''");
+    const urlB64  = Buffer.from(url, 'utf8').toString('base64');
+    await runPS(
+      `Start-Process '${escaped}' -ArgumentList ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${urlB64}')))`
+    );
     await new Promise(r => setTimeout(r, 3000));
-    await switchTo('firefox').catch(() => {});
+    await switchTo(processName).catch(() => {});
+  } else {
+    throw new Error('No browser found for Win32 fallback — install Chrome, Edge, or Firefox');
   }
   return `Opened ${url}`;
 }
