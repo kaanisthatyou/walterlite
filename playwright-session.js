@@ -10,7 +10,8 @@
 // - Element finding uses multi-strategy DOM traversal: text > role > LLM selector — brittle
 //   CSS ids/classes are the last resort, not the first.
 
-const { firefox } = require('playwright-core');
+const { chromium, firefox } = require('playwright-core');
+const browserDetector        = require('./browser-detector');
 const path        = require('path');
 const os          = require('os');
 const fs          = require('fs');
@@ -25,35 +26,14 @@ let _ownedCtx       = null;   // Playwright context launched by this module
 let recordingBuffer = [];
 let sessionActive   = false;
 
-// ── Firefox helpers ───────────────────────────────────────────────────────────
+// ── Browser helpers ───────────────────────────────────────────────────────────
 
-function findFirefoxExe() {
-  const candidates = [
-    process.env.FIREFOX_PATH,
-    'C:\\Program Files\\Mozilla Firefox\\firefox.exe',
-    'C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe',
-  ].filter(Boolean);
-  const found = candidates.find(p => fs.existsSync(p));
-  if (!found) throw new Error('Firefox bulunamadı — kurun veya FIREFOX_PATH ayarlayın');
-  return found;
-}
-
-function findRealProfile() {
-  const profilesDir = path.join(process.env.APPDATA || '', 'Mozilla', 'Firefox', 'Profiles');
-  if (!fs.existsSync(profilesDir)) throw new Error('Firefox profil dizini bulunamadı');
-  const dirs = fs.readdirSync(profilesDir).filter(d => {
-    try { return fs.statSync(path.join(profilesDir, d)).isDirectory(); } catch { return false; }
-  });
-  const name = dirs.find(d => d.endsWith('.default-release'))
-    || dirs.find(d => d.endsWith('.default'))
-    || dirs[0];
-  if (!name) throw new Error('Firefox profili bulunamadı');
-  return path.join(profilesDir, name);
-}
-
-async function isFirefoxRunning() {
+async function isBrowserRunning() {
+  let detected;
+  try { detected = browserDetector.best(); } catch { return false; }
+  const processName = require('path').basename(detected.exePath, '.exe').toLowerCase();
   const out = await runPS(
-    '(Get-Process firefox -ErrorAction SilentlyContinue | Measure-Object).Count'
+    `(Get-Process ${processName} -ErrorAction SilentlyContinue | Measure-Object).Count`
   ).catch(() => '0');
   return parseInt(out.trim(), 10) > 0;
 }
@@ -68,28 +48,44 @@ async function acquireContext() {
     if (ownedCtx) { ownedCtx.pages(); return ownedCtx; }
   } catch {}
 
-  // 2. Connect via CDP (Firefox running with --remote-debugging-port=9222)
+  // 2. Connect via CDP (browser running with --remote-debugging-port=9222)
   try {
-    const browser = await firefox.connectOverCDP('http://localhost:9222', { timeout: 2000 });
+    let detected;
+    try { detected = browserDetector.best(); } catch { detected = null; }
+    const pw = (detected?.api === 'firefox') ? firefox : chromium;
+    const browser = await pw.connectOverCDP('http://localhost:9222', { timeout: 2000 });
     const contexts = browser.contexts();
     return contexts.length > 0 ? contexts[0] : await browser.newContext();
   } catch {}
 
-  // 3. Launch Firefox with real profile (only when it isn't running)
-  if (await isFirefoxRunning()) {
+  // 3. Launch browser with real profile (only when it isn't running)
+  if (await isBrowserRunning()) {
+    const detected = browserDetector.best();
     throw new Error(
-      'Firefox açık ama Playwright erişimi yok. Bir kez kapat — WALTER CDP ile yeniden açacak. ' +
-      'Veya: "firefox cdp kur" komutuyla kısayolu kalıcı olarak yapılandır.'
+      `${detected.name} açık ama Playwright erişimi yok. Bir kez kapat — WALTER CDP ile yeniden açacak. ` +
+      `Veya: "firefox cdp kur" komutuyla kısayolu kalıcı olarak yapılandır.`
     );
   }
 
-  const profile = findRealProfile();
-  _ownedCtx = await firefox.launchPersistentContext(profile, {
-    executablePath: findFirefoxExe(),
-    headless: false,
-    viewport: null,
-    args: ['--remote-debugging-port=9222'],
-  });
+  const detected = browserDetector.best();
+  const pw = detected.api === 'firefox' ? firefox : chromium;
+
+  if (detected.profilePath) {
+    _ownedCtx = await pw.launchPersistentContext(detected.profilePath, {
+      executablePath: detected.exePath,
+      headless:       false,
+      viewport:       null,
+      args:           ['--remote-debugging-port=9222'],
+    });
+  } else {
+    _ownedCtx = await pw.launchPersistentContext('', {
+      executablePath: detected.exePath,
+      headless:       false,
+      viewport:       null,
+      args:           ['--remote-debugging-port=9222'],
+    });
+  }
+
   _ownedCtx.on('close', () => {
     _ownedCtx     = null;
     sessionPage   = null;
