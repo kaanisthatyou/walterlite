@@ -237,11 +237,12 @@ function startBot(notify) {
     notify('status', { state: 'receiving', text: 'voice message' });
     const tempFile = path.join(os.tmpdir(), `walter_${Date.now()}.ogg`);
     const tgNotify = makeTelegramNotify(ctx);
+    let text;
     try {
       const link = await ctx.telegram.getFileLink(ctx.message.voice.file_id);
       await downloadFile(link.href, tempFile);
       notify('status', { state: 'processing', text: 'transcribing...' });
-      const text = await transcribeAudio(tempFile);
+      text = await transcribeAudio(tempFile);
       const result = await execute(text, { notify: tgNotify, submit: true });
       notify('status', { state: 'idle' });
       await sendResult(ctx, result);
