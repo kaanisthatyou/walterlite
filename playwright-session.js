@@ -512,6 +512,7 @@ module.exports = {
   domInspect,
   isSessionActive,
   getRecordingBuffer,
+  getPageContext,
   // Exported for macro-runner.js
   findElement,
   takePageScreenshot,

@@ -1,4 +1,5 @@
 const { OpenAI } = require('openai');
+const conversation = require('./conversation');
 
 let client;
 
@@ -173,12 +174,29 @@ async function buildPlan(text) {
   if (!key) return null;
 
   try {
+    // Build multi-turn message list
+    const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+
+    // Inject rolling conversation history (enables "click that", "do it again", etc.)
+    for (const entry of conversation.getHistory()) {
+      messages.push({ role: entry.role, content: entry.content });
+    }
+
+    // Prepend active page context if a browser session is open
+    let userContent = text;
+    try {
+      const { isSessionActive, getPageContext } = require('./playwright-session');
+      if (isSessionActive()) {
+        const pageCtx = await getPageContext();
+        if (pageCtx) userContent = `[Aktif sayfa:\n${pageCtx}]\n\n${text}`;
+      }
+    } catch {}
+
+    messages.push({ role: 'user', content: userContent });
+
     const res = await getClient().chat.completions.create({
       model: process.env.INTENT_MODEL || 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user',   content: text },
-      ],
+      messages,
       max_tokens: 1024,
       temperature: 0,
     });
