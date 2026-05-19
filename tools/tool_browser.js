@@ -5,6 +5,23 @@ const { pasteText }  = require('../inject');
 
 const FIREFOX_PATH = process.env.FIREFOX_PATH || 'C:\\Program Files\\Mozilla Firefox\\firefox.exe';
 
+// Ensures any URL string has a protocol so new URL() can parse it.
+// Bare IP:port and localhost → http, everything else → https.
+function normalizeUrl(raw) {
+  const s = (raw || '').trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(s) || /^localhost(:\d+)?(\/|$)/i.test(s)) {
+    return `http://${s}`;
+  }
+  return `https://${s}`;
+}
+
+// Returns true for local IP/localhost URLs — these skip the bare-domain guard
+// (user explicitly typed the address, it's not an extraction failure).
+function isLocalAddress(url) {
+  return /^https?:\/\/((\d{1,3}\.){3}\d{1,3}|localhost)(:\d+)?(\/|$)/i.test(url);
+}
+
 // Reuse the Playwright BrowserContext owned by gemini-browser.js.
 // Returns null when Firefox was not launched by WALTER (user opened it themselves).
 function getSharedContext() {
@@ -40,18 +57,24 @@ const CLICK_SELECTORS = [
 // Tries Playwright first (returns screenshot + starts/continues session).
 // Falls back to Win32 paste-into-addressbar when Playwright isn't reachable.
 
-async function openUrl(url) {
-  if (!url || typeof url !== 'string' || !url.trim()) {
+async function openUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) {
     throw new Error('open_url: no URL provided — extraction likely failed');
   }
-  try {
-    const u = new URL(url.trim());
-    if ((u.pathname === '' || u.pathname === '/') && !u.search && !u.hash) {
-      throw new Error(`open_url: "${url}" is a bare domain with no path — video URL extraction failed`);
+  const url = normalizeUrl(rawUrl.trim());
+
+  // Bare-domain guard: skip for local IPs/ports (user typed it explicitly).
+  // For public URLs, reject bare domains with no path — likely an extraction failure.
+  if (!isLocalAddress(url)) {
+    try {
+      const u = new URL(url);
+      if ((u.pathname === '' || u.pathname === '/') && !u.search && !u.hash) {
+        throw new Error(`open_url: "${url}" is a bare domain with no path — video URL extraction failed`);
+      }
+    } catch (e) {
+      if (e.message.startsWith('open_url:')) throw e;
+      throw new Error(`open_url: malformed URL "${url}"`);
     }
-  } catch (e) {
-    if (e.message.startsWith('open_url:')) throw e;
-    throw new Error(`open_url: malformed URL "${url}"`);
   }
 
   // Playwright path: navigates in the active tab and returns a screenshot.
@@ -59,7 +82,7 @@ async function openUrl(url) {
   // session_step commands work without an explicit start_session call.
   try {
     const { ensureSession } = require('../playwright-session');
-    const result = await ensureSession({ url: url.trim() });
+    const result = await ensureSession({ url });
     // ensureSession returns { photo, caption } when a URL is provided
     if (result && result.photo) return result;
   } catch {
