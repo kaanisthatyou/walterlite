@@ -105,4 +105,35 @@ async function generateImage(prompt) {
   return null;
 }
 
-module.exports = { askClaude, askGemini, generateImage, cleanPrompt };
+async function askGeminiVision(prompt, imagePath) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn('[askGeminiVision] GEMINI_API_KEY not set — skipping vision call');
+    return null;
+  }
+  const fs = require('fs');
+  const imageData = fs.readFileSync(imagePath);
+  const base64 = imageData.toString('base64');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const body = {
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: 'image/png', data: base64 } },
+      ],
+    }],
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini vision API error ${res.status}: ${errText}`);
+  }
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+}
+
+module.exports = { askClaude, askGemini, generateImage, cleanPrompt, askGeminiVision };

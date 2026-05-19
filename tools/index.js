@@ -11,6 +11,7 @@ const {
   startSession, executeStep, saveRecording, replayRecording, stopSession, domInspect,
 } = require('../playwright-session');
 const { uiClick, uiRead }                            = require('../ui-automation');
+const { analyzeScreen, visionClick }                 = require('./tool_vision');
 const { switchTo }                            = require('../windows');
 const { sendHotkey }                          = require('../keyboard');
 const { injectText }                          = require('../inject');
@@ -47,6 +48,8 @@ const TOOL_REGISTRY = {
   dom_scan_prefix:      ({ name })         => domInspect({ save_as_prefix: name }),
   ui_click:             ({ text })         => uiClick(text),
   ui_read:              ({ window })       => uiRead(window),
+  analyze_screen:       ({ question })     => analyzeScreen(question),
+  vision_click:         ({ description })  => visionClick(description),
 };
 
 module.exports = { TOOL_REGISTRY };
