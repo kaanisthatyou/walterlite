@@ -44,6 +44,8 @@ TOOLS:
   setup_firefox_cdp()          one-time setup: modifies Firefox shortcuts to always launch with Playwright access (--remote-debugging-port=9222)
   dom_inspect()                lists all interactive elements (buttons, links, inputs) on the current browser tab — useful for understanding what's on a page
   dom_scan_prefix(name)        scans the current tab's DOM and saves interactive elements as a named prefix macro set (e.g. name="HBYS" → creates HBYS prefix with button macros)
+  ui_click(text)          clicks any native Windows UI element (button, checkbox, menu item) by its visible label — works in any app, not just browsers
+  ui_read(window)         lists all visible interactive elements in a native Windows window by title — call before ui_click to discover element names
 
 RULES:
 0. MEMORY FIRST: Before web_search for any channel URL, app path, or site URL, call recall with the matching key. If recall returns a non-null value, use it directly and skip the search steps. Mark search steps with "skip_if": "context.KEY" so the orchestrator skips them when that context key is already filled.
@@ -65,6 +67,8 @@ RULES:
 16. Session steps are open-ended: the user guides the browser visually (screenshots go back to Telegram). Generate exactly ONE session_step per user instruction — never chain them automatically.
 17. "firefox cdp kur" or "setup firefox cdp" or "tarayıcı cdp ayarla" → setup_firefox_cdp (one-time setup so Firefox always starts with Playwright access).
 18. DOM TOOLS: "sayfadaki elemanları göster / ne var bu sayfada / butonları listele" → dom_inspect. "bu sayfayı X olarak kaydet / X prefix oluştur / scan this page as X" → dom_scan_prefix(name=X). dom_scan_prefix auto-creates a Telegram menu prefix from the current browser tab — only works when a browser tab is active.
+19. URL NAVIGATION: Any URL, IP address (e.g. "10.16.40.250:8000"), or hostname is ALWAYS handled by open_url. Never generate start_session for navigation — open_url normalizes bare IPs and missing protocols automatically.
+20. NATIVE UI: For clicking in native Windows apps (file dialogs, message boxes, menus), use ui_click(text). session_step and dom_inspect are for browser tabs only. When unsure what elements exist, call ui_read first.
 
 OUTPUT FORMAT:
 {
@@ -138,7 +142,16 @@ User: "firefox cdp kur" or "setup firefox cdp" (one-time setup for persistent Pl
 {"intent":"setup_cdp","execution_plan":[{"step":1,"tool":"setup_firefox_cdp","parameters":{},"store_as":"context.answer","reason":"configure Firefox shortcuts to always start with remote debugging port"}]}
 
 User: "Imorr kanalından en son videoyu aç" (Turkish: open the latest video from Imorr's channel)
-{"intent":"play_channel_latest_video","execution_plan":[{"step":1,"tool":"recall","parameters":{"key":"youtube_channels:imorr"},"store_as":"context.channel_url","reason":"check memory for known channel URL before searching"},{"step":2,"tool":"web_search","parameters":{"query":"Imorr YouTube kanal @Imorr"},"store_as":"context.raw","skip_if":"context.channel_url","reason":"find channel URL only if recall returned null"},{"step":3,"tool":"extract_value","parameters":{"text":"{{context.raw}}","what":"YouTube channel URL for Imorr (youtube.com/@Name or youtube.com/c/Name format)"},"store_as":"context.channel_url","skip_if":"context.channel_url","reason":"extract clean channel URL — skip if recall already found it"},{"step":4,"tool":"learn","parameters":{"key":"youtube_channels:imorr","value":"{{context.channel_url}}"},"reason":"save discovered URL to memory (harmless if already known)"},{"step":5,"tool":"youtube_first_video","parameters":{"query":"Imorr en son video site:youtube.com"},"store_as":"context.url","reason":"get latest video from channel"},{"step":6,"tool":"open_url","parameters":{"url":"{{context.url}}"},"reason":"open the video"}]}`;
+{"intent":"play_channel_latest_video","execution_plan":[{"step":1,"tool":"recall","parameters":{"key":"youtube_channels:imorr"},"store_as":"context.channel_url","reason":"check memory for known channel URL before searching"},{"step":2,"tool":"web_search","parameters":{"query":"Imorr YouTube kanal @Imorr"},"store_as":"context.raw","skip_if":"context.channel_url","reason":"find channel URL only if recall returned null"},{"step":3,"tool":"extract_value","parameters":{"text":"{{context.raw}}","what":"YouTube channel URL for Imorr (youtube.com/@Name or youtube.com/c/Name format)"},"store_as":"context.channel_url","skip_if":"context.channel_url","reason":"extract clean channel URL — skip if recall already found it"},{"step":4,"tool":"learn","parameters":{"key":"youtube_channels:imorr","value":"{{context.channel_url}}"},"reason":"save discovered URL to memory (harmless if already known)"},{"step":5,"tool":"youtube_first_video","parameters":{"query":"Imorr en son video site:youtube.com"},"store_as":"context.url","reason":"get latest video from channel"},{"step":6,"tool":"open_url","parameters":{"url":"{{context.url}}"},"reason":"open the video"}]}
+
+User: "10.16.40.250:8000 adresine git" (bare IP navigation — no protocol needed)
+{"intent":"open_local_server","execution_plan":[{"step":1,"tool":"open_url","parameters":{"url":"10.16.40.250:8000"},"reason":"open_url normalizes bare IP:port to http:// automatically"}]}
+
+User: "Tamam butonuna tıkla" or "Click the OK button" (native Windows dialog)
+{"intent":"click_native_button","execution_plan":[{"step":1,"tool":"ui_click","parameters":{"text":"Tamam"},"reason":"click native Windows element by label via UI Automation"}]}
+
+User: "bu pencerede ne var" or "what buttons are here" (inspect native UI)
+{"intent":"inspect_native_ui","execution_plan":[{"step":1,"tool":"ui_read","parameters":{"window":""},"reason":"list all visible interactive elements in the foreground window"}]}`;
 
 function parseJSON(str) {
   try { return JSON.parse(str.trim()); } catch {}
