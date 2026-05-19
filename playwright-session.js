@@ -14,7 +14,6 @@ const { chromium, firefox } = require('playwright-core');
 const browserDetector        = require('./browser-detector');
 const path        = require('path');
 const os          = require('os');
-const fs          = require('fs');
 const { runPS }   = require('./ps-utils');
 const { askLLM }  = require('./tools/tool_llm');
 const memory      = require('./memory');
