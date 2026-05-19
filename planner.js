@@ -18,6 +18,10 @@ Your job: decompose any user request into a sequential JSON execution plan.
 Simple system commands (volume, hotkeys, media controls) are handled separately — you only receive requests needing real intelligence.
 
 TOOLS:
+  recall(key)                  checks persistent memory for a previously learned value — key format: "namespace:name" e.g. "youtube_channels:imorr", "apps:obsidian", "sites:sahibinden" — returns the value or null
+  learn(key, value)            saves a discovered value to memory so it is available next time — always call after finding a channel URL, app path, or site URL that wasn't already known
+  scan_path(directory)         scans a directory for .exe and .lnk files and bulk-saves them all to memory["apps"] — directory can be "desktop", "downloads", "documents", "program files", or a full path
+  scan_page(url, hint)         fetches a URL, derives a short label via LLM, and saves it to memory["sites"] — hint is an optional description of what the site is for
   web_search(query)            searches DuckDuckGo — returns Title, URL, and Snippet for each result
   extract_value(text, what)    uses LLM to pull one specific fact from text — returns only that fact
   ask_llm(prompt)              asks LLM a direct question — use for knowledge with no live data needed
@@ -33,8 +37,16 @@ TOOLS:
   read_clipboard()             returns current clipboard text
   write_clipboard(text)        sets clipboard to text
   wait(ms)                     waits N milliseconds
+  session_step(instruction)    executes one NL browser action on the CURRENTLY ACTIVE browser tab (click, fill, press, scroll, navigate) and returns a screenshot — auto-connects to Firefox via CDP, no start_session needed
+  save_recording(name)         saves the current session's recorded actions as a named macro for future replay
+  replay_recording(name)       replays a saved macro on the active page and returns a screenshot
+  stop_session()               ends the active browser session and clears the recording buffer
+  setup_firefox_cdp()          one-time setup: modifies Firefox shortcuts to always launch with Playwright access (--remote-debugging-port=9222)
+  dom_inspect()                lists all interactive elements (buttons, links, inputs) on the current browser tab — useful for understanding what's on a page
+  dom_scan_prefix(name)        scans the current tab's DOM and saves interactive elements as a named prefix macro set (e.g. name="HBYS" → creates HBYS prefix with button macros)
 
 RULES:
+0. MEMORY FIRST: Before web_search for any channel URL, app path, or site URL, call recall with the matching key. If recall returns a non-null value, use it directly and skip the search steps. Mark search steps with "skip_if": "context.KEY" so the orchestrator skips them when that context key is already filled.
 1. Return ONLY a single valid JSON object. No markdown. No text before or after it.
 2. If info is unknown or time-sensitive (names, news, prices), add web_search BEFORE the action step.
 3. Reference prior step results with {{context.STORE_KEY}} inside any parameter value.
@@ -46,6 +58,13 @@ RULES:
 9. Same site:domain pattern works for any site — always prefer finding the direct URL and using open_url over showing a results page.
 10. After open_url to any video or music URL, add NO further steps (no space, no enter, no send_hotkey) — the page auto-plays immediately.
 11. If you cannot make a sensible plan, return: {"intent":"unclear","execution_plan":[]}
+12. After successfully discovering a channel URL, site URL, or app path that wasn't in memory, call learn to save it for next time.
+13. "skip_if": "context.KEY" on a step tells the orchestrator to skip that step if context.KEY is already a non-null value — use this on search/extract steps that follow a recall step.
+14. SCAN: "masaüstünü tara", "uygulamaları tara", "scan desktop/downloads" → scan_path. "X'i kaydet / save X site" → scan_page. Never use web_search for these.
+15. BROWSER CONTROL: For simple URL navigation use open_url (it now returns a screenshot and auto-starts Playwright). For interactive control of whatever tab is currently open use session_step — it auto-connects without any start_session step. Do NOT generate start_session for URL navigation. "oturumu kapat / stop session" → stop_session. "kaydet [name]" → save_recording. "tekrarla [name]" → replay_recording.
+16. Session steps are open-ended: the user guides the browser visually (screenshots go back to Telegram). Generate exactly ONE session_step per user instruction — never chain them automatically.
+17. "firefox cdp kur" or "setup firefox cdp" or "tarayıcı cdp ayarla" → setup_firefox_cdp (one-time setup so Firefox always starts with Playwright access).
+18. DOM TOOLS: "sayfadaki elemanları göster / ne var bu sayfada / butonları listele" → dom_inspect. "bu sayfayı X olarak kaydet / X prefix oluştur / scan this page as X" → dom_scan_prefix(name=X). dom_scan_prefix auto-creates a Telegram menu prefix from the current browser tab — only works when a browser tab is active.
 
 OUTPUT FORMAT:
 {
@@ -89,7 +108,37 @@ User: "serdar ortaç'ın son şarkısını youtube'dan aç" (Turkish: open Serda
 {"intent":"research_and_play_youtube","execution_plan":[{"step":1,"tool":"web_search","parameters":{"query":"Serdar Ortaç son şarkısı 2024 2025"},"store_as":"context.raw","reason":"find the latest song name"},{"step":2,"tool":"extract_value","parameters":{"text":"{{context.raw}}","what":"the exact title of Serdar Ortaç's most recent song"},"store_as":"context.song","reason":"extract clean song title"},{"step":3,"tool":"youtube_first_video","parameters":{"query":"{{context.song}} Serdar Ortaç"},"store_as":"context.url","reason":"find the YouTube video"},{"step":4,"tool":"open_url","parameters":{"url":"{{context.url}}"},"reason":"open the video"}]}
 
 User: "find Mustafa Sandal's latest album and play it on YouTube"
-{"intent":"research_and_play_youtube","execution_plan":[{"step":1,"tool":"web_search","parameters":{"query":"Mustafa Sandal latest album 2024 2025 name"},"store_as":"context.raw","reason":"album name unknown"},{"step":2,"tool":"extract_value","parameters":{"text":"{{context.raw}}","what":"the exact title of Mustafa Sandal's most recent album"},"store_as":"context.album","reason":"extract clean title"},{"step":3,"tool":"youtube_first_video","parameters":{"query":"{{context.album}} Mustafa Sandal"},"store_as":"context.url","reason":"get the top YouTube video URL for this album"},{"step":4,"tool":"open_url","parameters":{"url":"{{context.url}}"},"reason":"open the video directly"}]}`;
+{"intent":"research_and_play_youtube","execution_plan":[{"step":1,"tool":"web_search","parameters":{"query":"Mustafa Sandal latest album 2024 2025 name"},"store_as":"context.raw","reason":"album name unknown"},{"step":2,"tool":"extract_value","parameters":{"text":"{{context.raw}}","what":"the exact title of Mustafa Sandal's most recent album"},"store_as":"context.album","reason":"extract clean title"},{"step":3,"tool":"youtube_first_video","parameters":{"query":"{{context.album}} Mustafa Sandal"},"store_as":"context.url","reason":"get the top YouTube video URL for this album"},{"step":4,"tool":"open_url","parameters":{"url":"{{context.url}}"},"reason":"open the video directly"}]}
+
+User: "masaüstünü tara" (Turkish: scan the desktop for apps)
+{"intent":"scan_desktop","execution_plan":[{"step":1,"tool":"scan_path","parameters":{"directory":"desktop"},"reason":"scan Desktop for .exe and .lnk files and save them all to memory"}]}
+
+User: "sahibinden.com'u kaydet" (Turkish: save sahibinden to memory) or "save this site: sahibinden.com"
+{"intent":"save_site","execution_plan":[{"step":1,"tool":"scan_page","parameters":{"url":"https://www.sahibinden.com","hint":"Turkish classifieds marketplace"},"reason":"fetch the page and save it to memory under a clean key"}]}
+
+User: "hbys'e git" or "http://192.168.1.10/hbys adresine git" (Turkish: go to HBYS site — open_url handles it, returns screenshot)
+{"intent":"open_url_hbys","execution_plan":[{"step":1,"tool":"recall","parameters":{"key":"sites:hbys"},"store_as":"context.url","reason":"check memory for HBYS URL"},{"step":2,"tool":"open_url","parameters":{"url":"{{context.url}}"},"reason":"navigate to HBYS — open_url now returns a screenshot automatically"}]}
+
+User: "login butonuna tıkla" or "Kapat butonuna tıkla" (Turkish: click a button on the current page)
+{"intent":"session_click","execution_plan":[{"step":1,"tool":"session_step","parameters":{"instruction":"login butonuna tıkla"},"reason":"click the login button — session_step auto-connects to the active tab"}]}
+
+User: "kullanıcı adı alanına admin yaz" (Turkish: type admin in the username field)
+{"intent":"session_fill","execution_plan":[{"step":1,"tool":"session_step","parameters":{"instruction":"kullanıcı adı alanına admin yaz"},"reason":"fill username field on the current tab"}]}
+
+User: "bu adımları hbys_giris olarak kaydet" (Turkish: save these steps as hbys_giris)
+{"intent":"save_macro","execution_plan":[{"step":1,"tool":"save_recording","parameters":{"name":"hbys_giris"},"reason":"save current session recording as a named macro"}]}
+
+User: "hbys_giris makrosunu tekrarla" (Turkish: replay the hbys_giris macro)
+{"intent":"replay_macro","execution_plan":[{"step":1,"tool":"replay_recording","parameters":{"name":"hbys_giris"},"reason":"replay saved macro on the active session page"}]}
+
+User: "oturumu kapat" or "stop session" (Turkish: close/stop the session)
+{"intent":"stop_session","execution_plan":[{"step":1,"tool":"stop_session","parameters":{},"reason":"end the active browser control session"}]}
+
+User: "firefox cdp kur" or "setup firefox cdp" (one-time setup for persistent Playwright access)
+{"intent":"setup_cdp","execution_plan":[{"step":1,"tool":"setup_firefox_cdp","parameters":{},"store_as":"context.answer","reason":"configure Firefox shortcuts to always start with remote debugging port"}]}
+
+User: "Imorr kanalından en son videoyu aç" (Turkish: open the latest video from Imorr's channel)
+{"intent":"play_channel_latest_video","execution_plan":[{"step":1,"tool":"recall","parameters":{"key":"youtube_channels:imorr"},"store_as":"context.channel_url","reason":"check memory for known channel URL before searching"},{"step":2,"tool":"web_search","parameters":{"query":"Imorr YouTube kanal @Imorr"},"store_as":"context.raw","skip_if":"context.channel_url","reason":"find channel URL only if recall returned null"},{"step":3,"tool":"extract_value","parameters":{"text":"{{context.raw}}","what":"YouTube channel URL for Imorr (youtube.com/@Name or youtube.com/c/Name format)"},"store_as":"context.channel_url","skip_if":"context.channel_url","reason":"extract clean channel URL — skip if recall already found it"},{"step":4,"tool":"learn","parameters":{"key":"youtube_channels:imorr","value":"{{context.channel_url}}"},"reason":"save discovered URL to memory (harmless if already known)"},{"step":5,"tool":"youtube_first_video","parameters":{"query":"Imorr en son video site:youtube.com"},"store_as":"context.url","reason":"get latest video from channel"},{"step":6,"tool":"open_url","parameters":{"url":"{{context.url}}"},"reason":"open the video"}]}`;
 
 function parseJSON(str) {
   try { return JSON.parse(str.trim()); } catch {}

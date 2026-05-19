@@ -1,4 +1,4 @@
-const { Telegraf, Input } = require('telegraf');
+const { Telegraf, Markup, Input } = require('telegraf');
 const { createWriteStream, unlink: unlinkSync } = require('fs');
 const { unlink }          = require('fs/promises');
 const https               = require('https');
@@ -7,12 +7,15 @@ const os                  = require('os');
 const { transcribeAudio } = require('./stt');
 const { execute }         = require('./executor');
 const { captureScreen }   = require('./system');
+const session             = require('./session');
+const registry            = require('./prefix-registry');
+const { advanceMacro }    = require('./macro-runner');
 
-const TELEGRAM_MAX = 4000; // Telegram message character limit
+const TELEGRAM_MAX = 4000;
 
-// Send a result back — handles plain strings, text objects, and photo objects.
+// ── Result sender ─────────────────────────────────────────────────────────────
+
 async function sendResult(ctx, result) {
-  // Image response
   if (result && typeof result === 'object' && result.photo) {
     await ctx.replyWithPhoto(Input.fromLocalFile(result.photo), {
       caption: result.caption ? result.caption.slice(0, 1024) : undefined,
@@ -20,22 +23,59 @@ async function sendResult(ctx, result) {
     unlink(result.photo).catch(() => {});
     return;
   }
-
-  // Text response (plain string or { text })
   const text = (result && typeof result === 'object' ? result.text : result) || '';
-
   if (text.length <= TELEGRAM_MAX) {
     await ctx.reply(text.startsWith('✗') ? text : `✓ ${text}`);
     return;
   }
-
-  // Long response — split into chunks
   let remaining = text;
   while (remaining.length > 0) {
     await ctx.reply(remaining.slice(0, TELEGRAM_MAX));
     remaining = remaining.slice(TELEGRAM_MAX);
   }
 }
+
+// ── Prefix session helpers ────────────────────────────────────────────────────
+
+function buildPrefixMenu(prefixKey) {
+  const prefix = registry.get(prefixKey);
+  if (!prefix) return null;
+  const rows = (prefix.macros || []).map(m =>
+    [Markup.button.callback(m.label, `MACRO:${m.id}`)]
+  );
+  rows.push([Markup.button.callback('❌ Oturumu Kapat', 'CANCEL')]);
+  return { text: `📋 ${prefix.label}\nNe yapayım?`, keyboard: Markup.inlineKeyboard(rows) };
+}
+
+async function sendPrefixMenu(ctx, prefixKey) {
+  const menu = buildPrefixMenu(prefixKey);
+  if (!menu) { await ctx.reply(`"${prefixKey}" için kayıtlı makro yok.`); return; }
+  await ctx.reply(menu.text, menu.keyboard);
+}
+
+// sendFn used by macro-runner to send back to Telegram
+function makeSendFn(ctx, prefixKey) {
+  return async (msg, opts = {}) => {
+    if (msg.photo) {
+      await ctx.replyWithPhoto(Input.fromLocalFile(msg.photo), {
+        caption: msg.caption ? msg.caption.slice(0, 1024) : undefined,
+      });
+      unlink(msg.photo).catch(() => {});
+    } else if (msg.text) {
+      if (msg.confirmButtons) {
+        await ctx.reply(msg.text, Markup.inlineKeyboard([[
+          Markup.button.callback('✅ Evet', 'CONFIRM:yes'),
+          Markup.button.callback('❌ Vazgeç', 'CONFIRM:no'),
+        ]]));
+      } else {
+        await ctx.reply(msg.text);
+      }
+    }
+    if (opts.showMenu) await sendPrefixMenu(ctx, prefixKey);
+  };
+}
+
+// ── Notify helper ─────────────────────────────────────────────────────────────
 
 function startBot(notify) {
   if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -52,17 +92,124 @@ function startBot(notify) {
   const bot       = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
   const allowedId = Number(process.env.ALLOWED_USER_ID);
 
-  function allowed(ctx) {
-    return ctx.from?.id === allowedId;
+  function allowed(ctx) { return ctx.from?.id === allowedId; }
+
+  function makeTelegramNotify(ctx) {
+    return (event, data) => {
+      notify(event, data);
+      if (event === 'plan' && data?.text) ctx.reply(data.text).catch(() => {});
+    };
   }
 
-  // Text messages → command parser → execute
+  // ── Inline keyboard callbacks ───────────────────────────────────────────────
+
+  bot.on('callback_query', async (ctx) => {
+    if (!allowed(ctx)) return;
+    await ctx.answerCbQuery().catch(() => {});
+
+    const data = ctx.callbackQuery?.data || '';
+
+    // Cancel
+    if (data === 'CANCEL') {
+      const prefixKey = session.get().activePrefix;
+      session.clear();
+      if (prefixKey) await ctx.reply(`✓ ${prefixKey} oturumu kapatıldı.`);
+      return;
+    }
+
+    // Yes/No confirm
+    if (data.startsWith('CONFIRM:')) {
+      if (!session.isPaused()) return;
+      const answer  = data.slice(8); // 'yes' or 'no'
+      const sendFn  = makeSendFn(ctx, session.get().activePrefix);
+      await advanceMacro(answer === 'yes' ? 'evet' : 'hayır', sendFn)
+        .catch(async err => { await ctx.reply(`✗ ${err.message}`); });
+      return;
+    }
+
+    // Macro button tap
+    if (data.startsWith('MACRO:')) {
+      const macroId = data.slice(6);
+      const state   = session.get();
+      if (!state.activePrefix) return;
+      session.set({ activeMacro: macroId, currentStep: 0, inputs: {} });
+      const sendFn = makeSendFn(ctx, state.activePrefix);
+      await advanceMacro(null, sendFn)
+        .catch(async err => { await ctx.reply(`✗ ${err.message}`); });
+      return;
+    }
+  });
+
+  // ── Text messages ───────────────────────────────────────────────────────────
+
   bot.on('text', async (ctx) => {
     if (!allowed(ctx)) return;
     const text = ctx.message.text.trim();
     notify('status', { state: 'receiving', text: text.slice(0, 32) });
+
+    // 1. Cancel words — always handled first, regardless of session state
+    const isCancel = /^(iptal|cancel|çıkış|kapat|dur|exit|stop|vazgeç)$/i.test(text);
+    if (isCancel && session.isActive()) {
+      const prefixKey = session.get().activePrefix;
+      session.clear();
+      notify('status', { state: 'idle' });
+      await ctx.reply(`✓ ${prefixKey} oturumu kapatıldı.`);
+      return;
+    }
+
+    // 2. Active prefix session — route to macro runner or menu re-show
+    if (session.isActive()) {
+      const state = session.get();
+
+      // Waiting for a prompt/confirm answer → feed to macro runner
+      if (session.isPaused()) {
+        const sendFn = makeSendFn(ctx, state.activePrefix);
+        await advanceMacro(text, sendFn)
+          .catch(async err => { await ctx.reply(`✗ ${err.message}`); });
+        notify('status', { state: 'idle' });
+        return;
+      }
+
+      // No active macro — check if text matches a macro label (typed instead of tapped)
+      if (!state.activeMacro) {
+        const prefix = registry.get(state.activePrefix);
+        const macro  = prefix?.macros.find(m =>
+          m.label.toLowerCase() === text.toLowerCase() ||
+          m.id.toLowerCase()    === text.toLowerCase()
+        );
+        if (macro) {
+          session.set({ activeMacro: macro.id, currentStep: 0, inputs: {} });
+          const sendFn = makeSendFn(ctx, state.activePrefix);
+          await advanceMacro(null, sendFn)
+            .catch(async err => { await ctx.reply(`✗ ${err.message}`); });
+          notify('status', { state: 'idle' });
+          return;
+        }
+        // Unrecognised text while menu is showing — re-show menu
+        await sendPrefixMenu(ctx, state.activePrefix);
+        notify('status', { state: 'idle' });
+        return;
+      }
+
+      // Macro running but not paused — pass through to executor (session_step etc.)
+    }
+
+    // 3. No active session — check if text is a prefix code (e.g. "HBYS")
+    if (!session.isActive()) {
+      const prefixKey = text.toUpperCase().trim();
+      if (registry.get(prefixKey)) {
+        session.clear();
+        session.set({ activePrefix: prefixKey });
+        notify('status', { state: 'idle' });
+        await sendPrefixMenu(ctx, prefixKey);
+        return;
+      }
+    }
+
+    // 4. Normal execute (also handles session_step when session is active without a menu macro)
+    const tgNotify = makeTelegramNotify(ctx);
     try {
-      const result = await execute(text, { notify, submit: true });
+      const result = await execute(text, { notify: tgNotify, submit: true });
       notify('status', { state: 'idle' });
       await sendResult(ctx, result);
     } catch (err) {
@@ -77,17 +224,19 @@ function startBot(notify) {
     }
   });
 
-  // Voice messages → Groq Whisper → command parser → execute
+  // ── Voice messages ──────────────────────────────────────────────────────────
+
   bot.on('voice', async (ctx) => {
     if (!allowed(ctx)) return;
     notify('status', { state: 'receiving', text: 'voice message' });
     const tempFile = path.join(os.tmpdir(), `walter_${Date.now()}.ogg`);
+    const tgNotify = makeTelegramNotify(ctx);
     try {
       const link = await ctx.telegram.getFileLink(ctx.message.voice.file_id);
       await downloadFile(link.href, tempFile);
       notify('status', { state: 'processing', text: 'transcribing...' });
       const text = await transcribeAudio(tempFile);
-      const result = await execute(text, { notify, submit: true });
+      const result = await execute(text, { notify: tgNotify, submit: true });
       notify('status', { state: 'idle' });
       await sendResult(ctx, result);
     } catch (err) {
@@ -112,10 +261,8 @@ function startBot(notify) {
     });
 
   notify('status', { state: 'idle' });
-
   process.once('SIGINT',  () => bot.stop('SIGINT'));
   process.once('SIGTERM', () => bot.stop('SIGTERM'));
-
   return () => bot.stop('restart');
 }
 

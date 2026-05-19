@@ -57,4 +57,34 @@ async function webSearch(query) {
   return results.length > 0 ? results.join('\n\n') : 'No results found.';
 }
 
-module.exports = { webSearch };
+// Fallback search via Bing HTML — used when DuckDuckGo fails or rate-limits.
+async function webSearchBing(query) {
+  const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+      'Accept': 'text/html',
+    },
+  });
+  if (!res.ok) throw new Error(`Bing HTTP ${res.status}`);
+  const html = await res.text();
+
+  const results = [];
+  const blockRe = /<li class="b_algo"[\s\S]*?<\/li>/g;
+  let m;
+  while ((m = blockRe.exec(html)) !== null && results.length < 5) {
+    const block = m[0];
+    const titleM   = block.match(/<h2[^>]*><a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    const snippetM = block.match(/<p[^>]*>([\s\S]*?)<\/p>/);
+    if (!titleM) continue;
+    const parts = [];
+    parts.push(`Title: ${cleanHtml(titleM[2])}`);
+    parts.push(`URL: ${titleM[1]}`);
+    if (snippetM) parts.push(`Snippet: ${cleanHtml(snippetM[1])}`);
+    results.push(parts.join('\n'));
+  }
+
+  return results.length > 0 ? results.join('\n\n') : 'No results found.';
+}
+
+module.exports = { webSearch, webSearchBing };

@@ -64,7 +64,9 @@ const PROCESS_ALIASES = {
   outlook:     'OUTLOOK',
 };
 
-async function switchTo(target) {
+// launch: when true (default), tries openApp as last resort if no window found.
+// Pass { launch: false } when you need the app to already be running (e.g. close_app).
+async function switchTo(target, { launch = true } = {}) {
   const t = target.toLowerCase().trim();
 
   // Built-in configured targets
@@ -79,12 +81,19 @@ async function switchTo(target) {
   // Well-known aliases
   if (PROCESS_ALIASES[t]) return focusByProcessName(PROCESS_ALIASES[t]);
 
-  // Try direct process name, then fall back to window title search
-  try {
-    return await focusByProcessName(target);
-  } catch {
-    return focusByWindowTitle(target);
+  // Step 1: process name match
+  try { return await focusByProcessName(target); } catch {}
+
+  // Step 2: window title match
+  try { return await focusByWindowTitle(target); } catch {}
+
+  // Step 3: app not running yet — try launching it (unless caller opted out)
+  if (launch) {
+    const { openApp } = require('./system');
+    return openApp(target);
   }
+
+  throw new Error(`"${target}" çalışmıyor`);
 }
 
 module.exports = { switchTo, focusByProcessName, focusByWindowTitle };

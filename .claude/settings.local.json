@@ -9,7 +9,8 @@
       "Skill(update-config)",
       "PowerShell(git *)",
       "PowerShell(gh auth *)",
-      "Bash(dir C:\\\\Users\\\\ADAS\\\\Desktop\\\\walterlite /b)"
+      "Bash(dir C:\\\\Users\\\\ADAS\\\\Desktop\\\\walterlite /b)",
+      "Bash(node *)"
     ]
   }
 }

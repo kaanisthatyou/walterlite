@@ -3,14 +3,50 @@ const { TOOL_REGISTRY } = require('./tools');
 const INFORMATIONAL_TOOLS = new Set(['ask_llm', 'extract_value', 'web_search', 'read_clipboard']);
 const STEP_TIMEOUT_MS = 25000;
 
+// When a tool fails, try an alternate approach before giving up.
+const STEP_FALLBACKS = {
+  web_search: async (params) => {
+    // DuckDuckGo down or rate-limited → try Bing
+    const { webSearchBing } = require('./tools/tool_web_search');
+    if (typeof webSearchBing === 'function') return webSearchBing(params.query);
+    throw new Error('no bing fallback available');
+  },
+  youtube_first_video: async (params) => {
+    // Simplify query by stripping Turkish/English filler words and retry
+    const simplified = params.query
+      .replace(/\b(en son|son|latest|newest|official|video|şarkı|müzik|music)\b/gi, '')
+      .replace(/\s+/g, ' ').trim();
+    if (!simplified || simplified === params.query) throw new Error('no simpler query possible');
+    const { youtubeFirstVideo } = require('./tools/tool_youtube_search');
+    return youtubeFirstVideo(simplified);
+  },
+  open_url: async (params) => {
+    // URL failed → fall back to a Google search for the domain
+    const { browserSearch } = require('./tools/tool_browser');
+    return browserSearch('google', params.url);
+  },
+};
+
 async function runPlan(plan, notifyFn) {
   const context = {};
   let lastResult = null;
   let lastTool = null;
+  const total = plan.execution_plan.length;
 
   for (const step of plan.execution_plan) {
-    const label = `${step.tool}…`;
+    // skip_if: skip this step when the referenced context key is already a non-null value
+    if (step.skip_if) {
+      const skipKey = step.skip_if.replace(/^context\./, '');
+      const skipVal = context[skipKey];
+      if (skipVal != null && skipVal !== '' && skipVal !== 'null') {
+        if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'skipped' });
+        continue;
+      }
+    }
+
+    const label = `${step.step}/${total} ${step.tool}…`;
     if (notifyFn) notifyFn('status', { state: 'processing', text: label });
+    if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'start' });
 
     const params = resolveParams(step.parameters || {}, context);
 
@@ -27,10 +63,24 @@ async function runPlan(plan, notifyFn) {
         break;
       } catch (err) {
         attempts++;
-        if (attempts >= 2) throw new Error(`Step ${step.step} (${step.tool}) failed: ${err.message}`);
-        await new Promise(r => setTimeout(r, 700));
+        if (attempts < 2) {
+          await new Promise(r => setTimeout(r, 700));
+          continue;
+        }
+        // Both retries failed — try the fallback if one exists
+        const fallbackFn = STEP_FALLBACKS[step.tool];
+        if (fallbackFn) {
+          try {
+            if (notifyFn) notifyFn('status', { state: 'processing', text: `fallback ${step.tool}…` });
+            result = await fallbackFn(params);
+            break;
+          } catch {}
+        }
+        throw new Error(`Step ${step.step} (${step.tool}) failed: ${err.message}`);
       }
     }
+
+    if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'done' });
 
     lastResult = result;
     lastTool = step.tool;
@@ -45,6 +95,10 @@ async function runPlan(plan, notifyFn) {
   if (typeof context.answer === 'string' && context.answer) return { text: context.answer };
   if (typeof lastResult === 'string' && lastResult && INFORMATIONAL_TOOLS.has(lastTool)) {
     return { text: lastResult };
+  }
+  // Pass through structured results that tools already packaged (e.g. session screenshots)
+  if (lastResult && typeof lastResult === 'object' && (lastResult.photo || lastResult.text)) {
+    return lastResult;
   }
 
   return `Done: ${plan.intent.replace(/_/g, ' ')}`;

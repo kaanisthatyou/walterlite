@@ -12,6 +12,7 @@ const { parseCommand }    = require('./commands');
 const { classifyIntent }  = require('./intent');
 const { buildPlan }       = require('./planner');
 const { runPlan }         = require('./orchestrator');
+const { isSessionActive } = require('./playwright-session');
 
 // Entry point — regex → intent LLM → agentic planner → dispatch.
 async function execute(text, { notify, submit = true } = {}) {
@@ -19,6 +20,23 @@ async function execute(text, { notify, submit = true } = {}) {
 
   if (cmd.type === 'type') {
     if (notify) notify('status', { state: 'processing', text: 'analyzing…' });
+
+    // When a browser session is active, unrecognised commands go straight to the planner.
+    // The planner knows session_step / stop_session / save_recording etc.
+    if (isSessionActive()) {
+      if (notify) notify('status', { state: 'processing', text: 'planning…' });
+      const plan = await buildPlan(text);
+      if (plan) {
+        if (notify && plan.execution_plan?.length) {
+          const lines = plan.execution_plan.map(s =>
+            `${s.step}. ${s.tool}${s.reason ? ` — ${s.reason}` : ''}`
+          );
+          notify('plan', { text: `📋 ${lines.length} adım:\n${lines.join('\n')}` });
+        }
+        const result = await runPlan(plan, notify);
+        return withScreenshot(result);
+      }
+    }
 
     // Complex requests skip the intent classifier — it would misroute them (e.g. mapping
     // "play Drake on YouTube" to openApp("youtube") which fails). Go straight to the planner.
@@ -31,6 +49,13 @@ async function execute(text, { notify, submit = true } = {}) {
       if (notify) notify('status', { state: 'processing', text: 'planning…' });
       const plan = await buildPlan(text);
       if (plan) {
+        // Emit the step breakdown so bot.js can forward it to Telegram
+        if (notify && plan.execution_plan?.length) {
+          const lines = plan.execution_plan.map(s =>
+            `${s.step}. ${s.tool}${s.reason ? ` — ${s.reason}` : ''}`
+          );
+          notify('plan', { text: `📋 ${lines.length} adım:\n${lines.join('\n')}` });
+        }
         const result = await runPlan(plan, notify);
         return withScreenshot(result);
       }
@@ -63,8 +88,9 @@ function isComplex(text) {
   if (/\b(play|watch|listen|stream|put on)\b.{2,}\b(on|in|via)\b/i.test(text)) return true;
   // File / document operations (English)
   if (/\b(file|document|folder|desktop|\.txt|\.pdf|\.docx|\.xlsx|\.mp3|\.mp4|\.png|\.jpg)\b/i.test(t)) return true;
-  // File / document operations (Turkish)
+  // File / document operations + scan commands (Turkish)
   if (/\b(belge|dosya|klas[oö]r|masaüstü|masaüstündeki|adlı|adında|isminde|bulunan)\b/i.test(t)) return true;
+  if (/\b(tara|tarat|scan)\b/i.test(t)) return true;
   // Turkish research / question commands
   if (/\b(nedir|nerede|nasıl|kimdir|ne zaman|kaç|hakkında|anlat|açıkla)\b/i.test(t)) return true;
   if (/\b(hava durumu|haber|fiyat|kur|tarihçe)\b/i.test(t)) return true;
@@ -76,6 +102,9 @@ function isComplex(text) {
   if (/\b(son|en son|yeni|güncel)\b.{5,}/i.test(t)) return true;
   // Turkish media/content commands that have surrounding content (not solo play/pause words)
   if (/\S.+\b(çal|oynat|dinle)\b|\b(çal|oynat|dinle)\b.+\S/i.test(t)) return true;
+  // Browser session commands
+  if (/\b(oturumu|start.?session|stop.?session|session.?baş|session.?kapat|makro|kaydet.+makro|makroyu.+tekrarla)\b/i.test(t)) return true;
+  if (/\bstart_session\b|\bsession_step\b|\bstop_session\b/i.test(t)) return true;
   return false;
 }
 
@@ -134,9 +163,8 @@ async function dispatch(cmd, originalText, { notify, submit } = {}) {
         case 'maximize':    await maximizeWindow();        return 'maximized';
         case 'close':       await closeWindow();           return 'closed';
         case 'close_app': {
-          // Switch to the target app first so we close the right window
           setStatus('processing', `closing ${cmd.app}`);
-          await switchTo(cmd.app);
+          await switchTo(cmd.app, { launch: false });
           await new Promise(r => setTimeout(r, 350));
           await closeWindow();
           return `closed ${cmd.app}`;

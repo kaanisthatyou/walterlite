@@ -1,7 +1,8 @@
-const path = require('path');
-const os   = require('os');
-const { runPS } = require('./ps-utils');
+const path   = require('path');
+const os     = require('os');
+const { runPS }              = require('./ps-utils');
 const { pressKey, sendHotkey } = require('./keyboard');
+const memory                 = require('./memory');
 
 const CS_WIN32 = `Add-Type -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
@@ -103,18 +104,119 @@ async function closeWindow() {
   return runPS(`${CS_WIN32}\n[SYS]::Close()`);
 }
 
+// --- App-open helpers ---
+
+async function startProcess(exePath) {
+  const b64 = Buffer.from(exePath, 'utf8').toString('base64');
+  return runPS(`Start-Process ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}')))`);
+}
+
+// Start Menu: searches both user and global .lnk / .exe entries
+async function findInStartMenu(lower) {
+  const b64 = Buffer.from(lower, 'utf8').toString('base64');
+  const script = `
+$q    = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}'))
+$dirs = @("$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs",
+          "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs")
+foreach ($d in $dirs) {
+  $f = Get-ChildItem $d -Recurse -Include '*.lnk','*.exe' -ErrorAction SilentlyContinue |
+       Where-Object { $_.BaseName -like "*$q*" } | Select-Object -First 1 -ExpandProperty FullName
+  if ($f) { Write-Output $f; exit }
+}`.trimStart();
+  const out = await runPS(script).catch(() => '');
+  return out?.trim() || null;
+}
+
+// Desktop: searches user Desktop for .lnk / .exe
+async function findOnDesktop(lower) {
+  const b64 = Buffer.from(lower, 'utf8').toString('base64');
+  const script = `
+$q       = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}'))
+$desktop = [Environment]::GetFolderPath('Desktop')
+$f = Get-ChildItem "$desktop\\*" -Include '*.lnk','*.exe' -ErrorAction SilentlyContinue |
+     Where-Object { $_.BaseName -like "*$q*" } | Select-Object -First 1 -ExpandProperty FullName
+if ($f) { Write-Output $f }`.trimStart();
+  const out = await runPS(script).catch(() => '');
+  return out?.trim() || null;
+}
+
+// Program Files: searches both PF dirs for name*.exe up to depth 2
+async function findInProgramFiles(lower) {
+  const b64 = Buffer.from(lower, 'utf8').toString('base64');
+  const script = `
+$q    = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}'))
+$pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+$dirs = @($env:ProgramFiles, $pf86) | Where-Object { $_ }
+foreach ($d in $dirs) {
+  $f = Get-ChildItem $d -Filter "$q*.exe" -Recurse -Depth 2 -ErrorAction SilentlyContinue |
+       Select-Object -First 1 -ExpandProperty FullName
+  if ($f) { Write-Output $f; exit }
+}`.trimStart();
+  const out = await runPS(script).catch(() => '');
+  return out?.trim() || null;
+}
+
+// LOCALAPPDATA: searches for name*.exe up to depth 3
+async function findInLocalAppData(lower) {
+  const b64 = Buffer.from(lower, 'utf8').toString('base64');
+  const script = `
+$q = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}'))
+$f = Get-ChildItem $env:LOCALAPPDATA -Filter "$q*.exe" -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+     Select-Object -First 1 -ExpandProperty FullName
+if ($f) { Write-Output $f }`.trimStart();
+  const out = await runPS(script).catch(() => '');
+  return out?.trim() || null;
+}
+
 async function openApp(appName) {
   const lower = appName.toLowerCase().trim();
-  const exe   = APP_EXE[lower] || appName;
-  const exeB64 = Buffer.from(exe, 'utf8').toString('base64');
-  const script = `
-$exe = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${exeB64}'))
-try { Start-Process $exe -ErrorAction Stop }
-catch {
-  try { Start-Process "$exe.exe" -ErrorAction Stop }
-  catch { Write-Error "Cannot open: $exe" }
-}`.trimStart();
-  return runPS(script);
+
+  // Step 1: static map — instant for well-known apps
+  if (APP_EXE[lower]) {
+    try { await startProcess(APP_EXE[lower]); return `opened ${appName}`; } catch {}
+  }
+
+  // Step 2: memory — path discovered in a previous session
+  const remembered = memory.get('apps', lower);
+  if (remembered) {
+    try { await startProcess(remembered); return `opened ${appName}`; } catch {}
+    // stale path — fall through to search
+  }
+
+  // Step 3: Start Menu shortcuts
+  const smPath = await findInStartMenu(lower);
+  if (smPath) {
+    await startProcess(smPath);
+    memory.set('apps', lower, smPath);
+    return `opened ${appName}`;
+  }
+
+  // Step 4: Desktop shortcuts
+  const dtPath = await findOnDesktop(lower);
+  if (dtPath) {
+    await startProcess(dtPath);
+    memory.set('apps', lower, dtPath);
+    return `opened ${appName}`;
+  }
+
+  // Step 5: Program Files (depth 2)
+  const pfPath = await findInProgramFiles(lower);
+  if (pfPath) {
+    await startProcess(pfPath);
+    memory.set('apps', lower, pfPath);
+    return `opened ${appName}`;
+  }
+
+  // Step 6: LOCALAPPDATA (depth 3)
+  const laPath = await findInLocalAppData(lower);
+  if (laPath) {
+    await startProcess(laPath);
+    memory.set('apps', lower, laPath);
+    return `opened ${appName}`;
+  }
+
+  // Step 7: nothing found
+  throw new Error(`"${appName}" bulunamadı — tam yolu Telegram'dan gönderir misin?`);
 }
 
 async function listWindows() {
@@ -125,10 +227,41 @@ Get-Process | Where-Object { $_.MainWindowTitle -ne '' } |
   return runPS(script);
 }
 
+// Modifies every Firefox shortcut (Desktop + Start Menu) to always launch with
+// --remote-debugging-port=9222, enabling Playwright CDP access on every start.
+// Safe to call multiple times — skips shortcuts that already have the flag.
+async function setupFirefoxCDP() {
+  const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$paths = @(
+  "$env:USERPROFILE\\Desktop\\Firefox.lnk",
+  "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Firefox.lnk",
+  "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Firefox.lnk"
+)
+$shell = New-Object -ComObject WScript.Shell
+$changed = @(); $already = @(); $missing = @()
+foreach ($p in $paths) {
+  if (-not (Test-Path $p)) { $missing += $p; continue }
+  $sc = $shell.CreateShortcut($p)
+  if ($sc.Arguments -like '*remote-debugging-port*') { $already += $p; continue }
+  $sc.Arguments = ($sc.Arguments + ' --remote-debugging-port=9222').Trim()
+  $sc.Save()
+  $changed += $p
+}
+[void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+if ($changed) { "✅ Güncellendi: " + ($changed -join ', ') }
+if ($already) { "ℹ️ Zaten ayarlı: " + ($already -join ', ') }
+if (-not $changed -and -not $already) { "⚠️ Firefox kısayolu bulunamadı — Firefox'u masaüstüne pin'le sonra tekrar dene." }
+`.trimStart();
+  const result = await runPS(script);
+  return (result?.trim() || 'Kısayol bulunamadı') +
+    '\n\nFirefox\'u kapatıp kısayoldan yeniden aç. Artık her seferinde CDP açık başlayacak.';
+}
+
 module.exports = {
   captureScreen,
   takeScreenshot, setVolume, lockScreen,
   minimizeWindow, maximizeWindow, closeWindow,
-  openApp, listWindows,
+  openApp, listWindows, setupFirefoxCDP,
   playPause, mediaNext, mediaPrev,
 };

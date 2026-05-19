@@ -36,7 +36,9 @@ const CLICK_SELECTORS = [
   'h3 > a[href]', 'h2 > a[href]',
 ];
 
-// ── Core Win32 navigation ─────────────────────────────────────────────────────
+// ── Core navigation ───────────────────────────────────────────────────────────
+// Tries Playwright first (returns screenshot + starts/continues session).
+// Falls back to Win32 paste-into-addressbar when Playwright isn't reachable.
 
 async function openUrl(url) {
   if (!url || typeof url !== 'string' || !url.trim()) {
@@ -52,6 +54,19 @@ async function openUrl(url) {
     throw new Error(`open_url: malformed URL "${url}"`);
   }
 
+  // Playwright path: navigates in the active tab and returns a screenshot.
+  // This also implicitly starts/continues the Playwright session so follow-up
+  // session_step commands work without an explicit start_session call.
+  try {
+    const { ensureSession } = require('../playwright-session');
+    const result = await ensureSession({ url: url.trim() });
+    // ensureSession returns { photo, caption } when a URL is provided
+    if (result && result.photo) return result;
+  } catch {
+    // Playwright not reachable — fall through to Win32
+  }
+
+  // Win32 fallback: paste URL into Firefox address bar
   const count = await runPS(
     '(Get-Process firefox -ErrorAction SilentlyContinue | Measure-Object).Count'
   ).catch(() => '0');
