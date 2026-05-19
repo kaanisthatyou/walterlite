@@ -76,7 +76,20 @@ async function runPlan(plan, notifyFn) {
             break;
           } catch {}
         }
-        throw new Error(`Step ${step.step} (${step.tool}) failed: ${err.message}`);
+        // Vision-guided error reporting: capture what's on screen before throwing
+        let visionResult;
+        try {
+          const analyzeScreen = TOOL_REGISTRY['analyze_screen'];
+          if (analyzeScreen) {
+            visionResult = await Promise.race([
+              analyzeScreen({ question: `Step '${step.tool}' just failed. What is currently on screen? Is there an error message or dialog?` }),
+              new Promise((_, rej) => setTimeout(() => rej(new Error('vision timeout')), 5000)),
+            ]);
+            console.log(`[vision] Step ${step.step} failure context: ${visionResult}`);
+          }
+        } catch {}
+        const screenInfo = visionResult ? `\n\nScreen: ${visionResult}` : '';
+        throw new Error(`Step ${step.step} (${step.tool}) failed: ${err.message}${screenInfo}`);
       }
     }
 
