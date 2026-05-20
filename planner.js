@@ -169,7 +169,7 @@ function parseJSON(str) {
   return null;
 }
 
-async function buildPlan(text) {
+async function buildPlan(text, { skipPageContext = false } = {}) {
   const key = process.env.INTENT_API_KEY || process.env.GROQ_API_KEY || '';
   if (!key) return null;
 
@@ -182,11 +182,12 @@ async function buildPlan(text) {
       messages.push({ role: entry.role, content: entry.content });
     }
 
-    // Prepend active page context if a browser session is open
+    // Prepend active page context if a browser session is open.
+    // Skipped for non-browser commands to avoid confusing the planner with stale page content.
     let userContent = text;
     try {
       const { isSessionActive, getPageContext } = require('./playwright-session');
-      if (isSessionActive()) {
+      if (!skipPageContext && isSessionActive()) {
         const pageCtx = await getPageContext();
         if (pageCtx) userContent = `[Aktif sayfa:\n${pageCtx}]\n\n${text}`;
       }
