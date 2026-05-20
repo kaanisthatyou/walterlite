@@ -3,7 +3,7 @@
 
 const RULES = [
   // Escape hatch: force-type everything after "type "
-  [/^type\s+(.+)$/i,                   m => ({ type: 'type', text: m[1] })],
+  [/^type\s+(.+)$/i,                   m => ({ type: 'type', text: m[1], _explicit: true })],
 
   // ── Window switching ──────────────────────────────────────────────────────
   [/^claude$|^clu$/i,                  () => ({ type: 'switch', target: 'claude' })],
