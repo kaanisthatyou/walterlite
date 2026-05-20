@@ -12,14 +12,23 @@ const { parseCommand }    = require('./commands');
 const { classifyIntent }  = require('./intent');
 const { buildPlan }       = require('./planner');
 const { runPlan }         = require('./orchestrator');
-const { isSessionActive } = require('./playwright-session');
+const { isSessionActive, isSessionAlive, stopSession } = require('./playwright-session');
 
 // Entry point — regex → intent LLM → agentic planner → dispatch.
 async function execute(text, { notify, submit = true } = {}) {
   let cmd = parseCommand(text);
 
   if (cmd.type === 'type') {
+    // "type <text>" escape hatch — bypass AI pipeline entirely
+    if (cmd._explicit) {
+      return withScreenshot(await dispatch(cmd, text, { notify, submit }));
+    }
+
     if (notify) notify('status', { state: 'processing', text: 'analyzing…' });
+
+    // Auto-reset stale session: sessionActive stays true after the user closes a tab,
+    // which would inject irrelevant page context into every planner call.
+    if (isSessionActive() && !isSessionAlive()) stopSession();
 
     // When a browser session is active, unrecognised commands go straight to the planner.
     // The planner knows session_step / stop_session / save_recording etc.
@@ -47,7 +56,8 @@ async function execute(text, { notify, submit = true } = {}) {
 
     if (cmd.type === 'type') {
       if (notify) notify('status', { state: 'processing', text: 'planning…' });
-      const plan = await buildPlan(text);
+      // skipPageContext: true — avoids injecting stale browser page content for non-browser commands
+      const plan = await buildPlan(text, { skipPageContext: true });
       if (plan) {
         // Emit the step breakdown so bot.js can forward it to Telegram
         if (notify && plan.execution_plan?.length) {
@@ -59,6 +69,8 @@ async function execute(text, { notify, submit = true } = {}) {
         const result = await runPlan(plan, notify);
         return withScreenshot(result);
       }
+      // All AI paths exhausted — return error instead of silently typing raw input
+      return { text: `Komutu anlayamadım: "${text.slice(0, 60)}"${text.length > 60 ? '…' : ''}` };
     }
   }
 
