@@ -500,6 +500,10 @@ async function domInspect({ save_as_prefix } = {}) {
 }
 
 function isSessionActive()    { return sessionActive; }
+function isSessionAlive()     {
+  if (!sessionActive || !sessionPage) return false;
+  try { return !sessionPage.isClosed(); } catch { return false; }
+}
 function getRecordingBuffer() { return [...recordingBuffer]; }
 
 module.exports = {
@@ -511,6 +515,7 @@ module.exports = {
   stopSession,
   domInspect,
   isSessionActive,
+  isSessionAlive,
   getRecordingBuffer,
   getPageContext,
   // Exported for macro-runner.js
