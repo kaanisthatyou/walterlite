@@ -1,9 +1,16 @@
 const { TOOL_REGISTRY } = require('./tools');
 
-const INFORMATIONAL_TOOLS = new Set(['ask_llm', 'ask_claude', 'extract_value', 'web_search', 'read_clipboard']);
+const INFORMATIONAL_TOOLS = new Set([
+  'ask_llm', 'ask_claude', 'extract_value', 'web_search', 'read_clipboard',
+  'claude_start', 'claude_continue', 'claude_last', 'claude_status', 'claude_clear',
+]);
 const STEP_TIMEOUT_MS = 25000;
-// Tools that need a longer timeout (Claude CLI can take 30-90s for complex tasks)
-const TOOL_TIMEOUT_MS = { ask_claude: 90000 };
+// Claude CLI can take 30-90s — give all Claude tools extra time
+const TOOL_TIMEOUT_MS = {
+  ask_claude:      90000,
+  claude_start:    90000,
+  claude_continue: 90000,
+};
 
 // When a tool fails, try an alternate approach before giving up.
 const STEP_FALLBACKS = {

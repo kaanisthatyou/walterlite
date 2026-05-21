@@ -13,6 +13,9 @@ const {
 const { uiClick, uiRead }                            = require('../ui-automation');
 const { analyzeScreen, visionClick }                 = require('./tool_vision');
 const { claudeTask }                                 = require('./tool_claude_task');
+const {
+  claudeStart, claudeContinue, claudeClear, claudeStatus, claudeLastResponse,
+} = require('./tool_claude_session');
 const { switchTo }                            = require('../windows');
 const { sendHotkey }                          = require('../keyboard');
 const { injectText }                          = require('../inject');
@@ -52,6 +55,12 @@ const TOOL_REGISTRY = {
   analyze_screen:       ({ question })     => analyzeScreen(question),
   vision_click:         ({ description })  => visionClick(description),
   ask_claude:           ({ task, context }) => claudeTask({ task, context }),
+  // Multi-turn Claude Code session tools — only used when user explicitly requests Claude
+  claude_start:         ({ task })          => claudeStart({ task }),
+  claude_continue:      ({ message })       => claudeContinue({ message }),
+  claude_clear:         ()                  => claudeClear(),
+  claude_status:        ()                  => claudeStatus(),
+  claude_last:          ()                  => claudeLastResponse(),
 };
 
 module.exports = { TOOL_REGISTRY };

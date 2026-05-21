@@ -117,16 +117,18 @@ function isComplex(text) {
   // Browser session commands
   if (/\b(oturumu|start.?session|stop.?session|session.?baş|session.?kapat|makro|kaydet.+makro|makroyu.+tekrarla)\b/i.test(t)) return true;
   if (/\bstart_session\b|\bsession_step\b|\bstop_session\b/i.test(t)) return true;
-  // English AI question / task patterns — these go straight to planner (ask_claude or ask_llm)
+  // English AI question / task patterns — need the planner (ask_llm or explicit claude)
   if (/\b(explain|describe|summarize|summarise|analyze|analyse|review|evaluate|compare)\b/i.test(t)) return true;
   if (/\b(write me|write a|write an|draft a|draft an|create a|generate a|make me a)\b/i.test(t)) return true;
   if (/\b(help me|how do i|how to|what is|what are|what does|tell me about|can you)\b/i.test(t)) return true;
-  if (/\b(translate|convert|fix|debug|refactor|improve|optimize|check|verify)\b/i.test(t)) return true;
-  if (/\b(code|script|function|program|snippet|regex|query|sql|json|yaml|html|css)\b/i.test(t)) return true;
+  if (/\b(translate|convert|fix this|debug|refactor|improve|optimize)\b/i.test(t)) return true;
+  if (/\b(code for|write code|write script|write function|write a program)\b/i.test(t)) return true;
   // Turkish AI / task patterns
-  if (/\b(yaz|oluştur|hazırla|düzelt|düzenle|çevir|özetle|incele|açıkla|anlat|kontrol et)\b/i.test(t)) return true;
-  if (/\b(kod|script|fonksiyon|program|sorgu|çeviri|özet|analiz|inceleme)\b/i.test(t)) return true;
-  if (/\b(claude'a|claude'dan|claude ile|claude koda|claude koddan)\b/i.test(t)) return true;
+  if (/\b(yaz|oluştur|hazırla|düzelt|düzenle|çevir|özetle|incele|açıkla|kontrol et)\b/i.test(t)) return true;
+  if (/\b(kod yaz|script yaz|fonksiyon yaz|sorgu yaz|çeviri yap|özet çıkar|analiz et)\b/i.test(t)) return true;
+  // Explicit Claude triggers — these specifically route to claude_start / claude_continue
+  if (/\b(use claude|tell claude|ask claude to|have claude|claude ile yap|claude'a söyle|claude'a sor|claude koda|claude koddan)\b/i.test(t)) return true;
+  if (/\b(start claude|stop claude|claude session|claude oturumu)\b/i.test(t)) return true;
   return false;
 }
 
