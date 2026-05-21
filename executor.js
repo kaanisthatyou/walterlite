@@ -82,7 +82,7 @@ async function execute(text, { notify, submit = true } = {}) {
 // Skips for pure text/image AI responses — those already carry their own payload.
 async function withScreenshot(result) {
   if (result && typeof result === 'object' && (result.photo || result.text)) return result;
-  await new Promise(r => setTimeout(r, 600)); // let UI settle
+  await new Promise(r => setTimeout(r, 300)); // let UI settle
   const ssPath = await captureScreen().catch(() => null);
   if (!ssPath) return result;
   const caption = (typeof result === 'string' ? result : '').slice(0, 200);
@@ -117,6 +117,16 @@ function isComplex(text) {
   // Browser session commands
   if (/\b(oturumu|start.?session|stop.?session|session.?baş|session.?kapat|makro|kaydet.+makro|makroyu.+tekrarla)\b/i.test(t)) return true;
   if (/\bstart_session\b|\bsession_step\b|\bstop_session\b/i.test(t)) return true;
+  // English AI question / task patterns — these go straight to planner (ask_claude or ask_llm)
+  if (/\b(explain|describe|summarize|summarise|analyze|analyse|review|evaluate|compare)\b/i.test(t)) return true;
+  if (/\b(write me|write a|write an|draft a|draft an|create a|generate a|make me a)\b/i.test(t)) return true;
+  if (/\b(help me|how do i|how to|what is|what are|what does|tell me about|can you)\b/i.test(t)) return true;
+  if (/\b(translate|convert|fix|debug|refactor|improve|optimize|check|verify)\b/i.test(t)) return true;
+  if (/\b(code|script|function|program|snippet|regex|query|sql|json|yaml|html|css)\b/i.test(t)) return true;
+  // Turkish AI / task patterns
+  if (/\b(yaz|oluştur|hazırla|düzelt|düzenle|çevir|özetle|incele|açıkla|anlat|kontrol et)\b/i.test(t)) return true;
+  if (/\b(kod|script|fonksiyon|program|sorgu|çeviri|özet|analiz|inceleme)\b/i.test(t)) return true;
+  if (/\b(claude'a|claude'dan|claude ile|claude koda|claude koddan)\b/i.test(t)) return true;
   return false;
 }
 

@@ -49,6 +49,7 @@ TOOLS:
   ui_read(window)         lists all visible interactive elements in a native Windows window by title — call before ui_click to discover element names
   analyze_screen(question)     takes a screenshot and asks Gemini vision what is on screen — answers any question about visible content, errors, or UI state
   vision_click(description)    takes a screenshot, uses Gemini vision to find element by visual description, and clicks it — use when DOM strategies fail or for non-browser screens
+  ask_claude(task, context)    delegates to Claude Code (claude -p) for high-quality answers — use for: coding help, debugging, code review, writing/drafting, detailed explanations, analysis, translations, math — uses the user's Claude Code subscription quota, no extra API key needed — "context" is optional extra background info
 
 RULES:
 0. MEMORY FIRST: Before web_search for any channel URL, app path, or site URL, call recall with the matching key. If recall returns a non-null value, use it directly and skip the search steps. Mark search steps with "skip_if": "context.KEY" so the orchestrator skips them when that context key is already filled.
@@ -56,7 +57,7 @@ RULES:
 2. If info is unknown or time-sensitive (names, news, prices), add web_search BEFORE the action step.
 3. Reference prior step results with {{context.STORE_KEY}} inside any parameter value.
 4. Keep plans minimal — only add steps that are truly necessary.
-5. Pure knowledge with no live data → one step, ask_llm.
+5. AI ROUTING: Pure factual question with no live data → ask_llm (faster, Groq). Code, writing, analysis, debugging, translation, detailed explanation, or anything requiring careful reasoning → ask_claude (smarter, Claude Code). Never use ask_llm for tasks that need multi-step reasoning or code generation.
 6. Spotify desktop app: switch_to(spotify) → send_hotkey(ctrl+k) → type_text(query) → wait(500) → send_hotkey(enter).
 7. PLAY/OPEN a specific video on YouTube: youtube_first_video(query) → open_url(url). Never use web_search or browser_search for this.
 8. SEARCH YouTube (user explicitly wants to browse results): browser_search("youtube", query).
@@ -72,6 +73,8 @@ RULES:
 18. DOM TOOLS: "sayfadaki elemanları göster / ne var bu sayfada / butonları listele" → dom_inspect. "bu sayfayı X olarak kaydet / X prefix oluştur / scan this page as X" → dom_scan_prefix(name=X). dom_scan_prefix auto-creates a Telegram menu prefix from the current browser tab — only works when a browser tab is active.
 19. URL NAVIGATION: Any URL, IP address (e.g. "10.16.40.250:8000"), or hostname is ALWAYS handled by open_url. Never generate start_session for navigation — open_url normalizes bare IPs and missing protocols automatically.
 20. NATIVE UI: For clicking in native Windows apps (file dialogs, message boxes, menus), use ui_click(text). session_step and dom_inspect are for browser tabs only. When unsure what elements exist, call ui_read first.
+21. CLIPBOARD CONTEXT: When the user references "this code", "this text", "the clipboard", or implies they have something selected/copied, add a read_clipboard step first and pass {{context.clip}} as the "context" parameter to ask_claude.
+22. ask_claude accepts multi-line task strings — write the full task description in natural language, including any constraints, format preferences, or code language.
 
 OUTPUT FORMAT:
 {
@@ -160,7 +163,19 @@ User: "ekranda ne var" or "what do you see on screen" or "describe the screen"
 {"intent":"analyze_screen","execution_plan":[{"step":1,"tool":"analyze_screen","parameters":{"question":"What is currently visible on the screen? Describe all visible UI elements, text, and state in detail."},"store_as":"context.answer","reason":"capture and describe current screen state using Gemini vision"}]}
 
 User: "kaydet butonuna tıkla" when DOM click fails, or "vision ile tıkla: Submit button"
-{"intent":"vision_click_element","execution_plan":[{"step":1,"tool":"vision_click","parameters":{"description":"Kaydet / Save button"},"reason":"use Gemini vision to find and click element by visual description when DOM targeting is unavailable"}]}`;
+{"intent":"vision_click_element","execution_plan":[{"step":1,"tool":"vision_click","parameters":{"description":"Kaydet / Save button"},"reason":"use Gemini vision to find and click element by visual description when DOM targeting is unavailable"}]}
+
+User: "write me a Python function to parse JSON from a URL"
+{"intent":"code_generation","execution_plan":[{"step":1,"tool":"ask_claude","parameters":{"task":"Write a Python function that fetches a URL, parses the JSON response, and returns it as a dict. Include error handling for network errors and invalid JSON. Add type hints."},"store_as":"context.answer","reason":"code generation task — Claude is better than Groq for this"}]}
+
+User: "bu kodu claude'a incelet" (Turkish: have Claude review this code) or "review my code" or "claude'a sor"
+{"intent":"code_review","execution_plan":[{"step":1,"tool":"read_clipboard","parameters":{},"store_as":"context.clip","reason":"get the code from clipboard"},{"step":2,"tool":"ask_claude","parameters":{"task":"Review this code. Identify bugs, suggest improvements, and explain any issues clearly.","context":"{{context.clip}}"},"store_as":"context.answer","reason":"Claude Code for detailed code review"}]}
+
+User: "explain how async/await works in JavaScript" or "JavaScript'te async await nasıl çalışır"
+{"intent":"technical_explanation","execution_plan":[{"step":1,"tool":"ask_claude","parameters":{"task":"Explain how async/await works in JavaScript with clear examples. Cover: what it replaces, how the event loop is involved, error handling with try/catch, and common pitfalls."},"store_as":"context.answer","reason":"detailed technical explanation — use Claude for quality"}]}
+
+User: "translate this to English" or "bunu ingilizceye çevir" (with clipboard context implied)
+{"intent":"translate_clipboard","execution_plan":[{"step":1,"tool":"read_clipboard","parameters":{},"store_as":"context.clip","reason":"get text from clipboard"},{"step":2,"tool":"ask_claude","parameters":{"task":"Translate the following text to English accurately. Keep formatting and tone:","context":"{{context.clip}}"},"store_as":"context.answer","reason":"translation — Claude for accuracy"}]}`;
 
 function parseJSON(str) {
   try { return JSON.parse(str.trim()); } catch {}

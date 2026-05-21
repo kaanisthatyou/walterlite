@@ -12,6 +12,7 @@ const {
 } = require('../playwright-session');
 const { uiClick, uiRead }                            = require('../ui-automation');
 const { analyzeScreen, visionClick }                 = require('./tool_vision');
+const { claudeTask }                                 = require('./tool_claude_task');
 const { switchTo }                            = require('../windows');
 const { sendHotkey }                          = require('../keyboard');
 const { injectText }                          = require('../inject');
@@ -50,6 +51,7 @@ const TOOL_REGISTRY = {
   ui_read:              ({ window })       => uiRead(window),
   analyze_screen:       ({ question })     => analyzeScreen(question),
   vision_click:         ({ description })  => visionClick(description),
+  ask_claude:           ({ task, context }) => claudeTask({ task, context }),
 };
 
 module.exports = { TOOL_REGISTRY };

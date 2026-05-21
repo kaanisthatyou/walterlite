@@ -1,7 +1,9 @@
 const { TOOL_REGISTRY } = require('./tools');
 
-const INFORMATIONAL_TOOLS = new Set(['ask_llm', 'extract_value', 'web_search', 'read_clipboard']);
+const INFORMATIONAL_TOOLS = new Set(['ask_llm', 'ask_claude', 'extract_value', 'web_search', 'read_clipboard']);
 const STEP_TIMEOUT_MS = 25000;
+// Tools that need a longer timeout (Claude CLI can take 30-90s for complex tasks)
+const TOOL_TIMEOUT_MS = { ask_claude: 90000 };
 
 // When a tool fails, try an alternate approach before giving up.
 const STEP_FALLBACKS = {
@@ -56,9 +58,10 @@ async function runPlan(plan, notifyFn) {
       try {
         const toolFn = TOOL_REGISTRY[step.tool];
         if (!toolFn) throw new Error(`Unknown tool: ${step.tool}`);
+        const stepTimeout = TOOL_TIMEOUT_MS[step.tool] ?? STEP_TIMEOUT_MS;
         result = await Promise.race([
           toolFn(params),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), STEP_TIMEOUT_MS)),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), stepTimeout)),
         ]);
         break;
       } catch (err) {

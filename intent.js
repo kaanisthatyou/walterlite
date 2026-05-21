@@ -138,7 +138,7 @@ close_window: close whatever is currently focused — "close this", "close the w
 close_app: close a SPECIFIC named app — "close calculator", "quit spotify", "turn off notepad", "kill discord" — include "target" field with the app name
 type: ← ONLY if it's genuinely text to type, not a command
 
-ask_claude: ask claude, what does claude think, have claude answer, claude tell me, claude explain — include "prompt" field with the exact question
+ask_claude: ask claude, what does claude think, have claude answer, claude tell me, claude explain, claude koda sor, claude'a sor, claude'dan sor, claude ile incele, claude ile yaz — include "prompt" field with the exact question or task
 ask_gemini: ask gemini, what does gemini say, have gemini answer, gemini tell me, gemini explain — include "prompt" field
 generate_image: generate an image, create a picture, draw something, make an image, image of — include "prompt" field with the image description
 
@@ -161,6 +161,8 @@ RULES:
 - Turkish IS supported — use the Turkish equivalents listed above. Do NOT return type just because the input is Turkish.
 - If the request contains a platform name (youtube, spotify) AND content (song, video, artist name) → {"cmd":"type"} — the planner handles those.
 - If it's a complex multi-step request, genuinely text to type, or you're unsure → {"cmd":"type"}.
+- "claude'a sor X", "claude koda sor X", "claude ile X", "ask claude to X", "have claude X" → ask_claude with "prompt" field.
+- Writing, coding, translation, analysis, explanation tasks → {"cmd":"type"} so the planner routes to ask_claude (better quality).
 - Return ONLY the JSON. Nothing else.`;
 
 async function classifyIntent(text) {
