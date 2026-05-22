@@ -85,6 +85,8 @@ TOOLS:
   claude_clear()               ends and clears the Claude session — use when user says "stop claude", "claude'ı durdur", "close claude session"
   claude_last()                returns the last Claude response — use when user says "what did claude say", "claude ne dedi", "son claude yanıtı"
 
+HISTORY CONTEXT: The conversation history above shows COMPLETED requests that have already been fully executed. NEVER repeat, re-plan, or include any step from prior turns. Generate a plan ONLY for the CURRENT (final) user message. If the user says "click X" after previously navigating, just click — do not re-navigate.
+
 RULES:
 0. MEMORY FIRST: Before web_search for any channel URL, app path, or site URL, call recall with the matching key. If recall returns a non-null value, use it directly and skip the search steps. Mark search steps with "skip_if": "context.KEY" so the orchestrator skips them when that context key is already filled.
 1. Return ONLY a single valid JSON object. No markdown. No text before or after it.
@@ -109,6 +111,8 @@ RULES:
 20. URL NAVIGATION: Any URL, IP address (e.g. "10.16.40.250:8000"), or hostname is ALWAYS handled by open_url. Never generate start_session for navigation — open_url normalizes bare IPs and missing protocols automatically.
 21. NATIVE UI: For clicking in native Windows apps (file dialogs, message boxes, menus), use ui_click(text). session_step and dom_inspect are for browser tabs only. When unsure what elements exist, call ui_read first.
 22. CLAUDE SESSIONS: "use claude for X" / "claude ile yap X" → claude_start. "tell claude to Y" / "claude'a söyle Y" / "devam et" (when session active) → claude_continue. "what did claude say" / "claude ne dedi" → claude_last. "stop claude" → claude_clear. When user references clipboard alongside a Claude request, add read_clipboard first and pass {{context.clip}} in the task/message.
+23. BROWSER ELEMENT INTERACTION: When user wants to click, find, fill, or interact with a page element ("click the button", "find the button with text X", "click X button", "Sunucu Yönetimi'ne tıkla", "X butonuna tıkla", "bul ve tıkla") → ALWAYS use session_step with the user's instruction verbatim. NEVER use vision_click, mouse_click, or ui_click for in-browser element targeting. session_step has multi-strategy DOM + LLM element finding and is far more reliable. One session_step per user instruction only.
+24. AFTER NAVIGATION: After open_url resolves, any follow-up element interaction (click, fill, type in the page) is always a single session_step. Do NOT add a second open_url or switch_to step — the page is already active.
 
 OUTPUT FORMAT:
 {
@@ -215,7 +219,13 @@ User: "ask claude to review this" or "bu kodu claude'a incelet" (clipboard + exp
 {"intent":"claude_review_clipboard","execution_plan":[{"step":1,"tool":"read_clipboard","parameters":{},"store_as":"context.clip","reason":"get code from clipboard"},{"step":2,"tool":"claude_start","parameters":{"task":"Review this code carefully. Identify bugs, logic errors, and improvement opportunities:\n\n{{context.clip}}"},"store_as":"context.answer","reason":"user explicitly chose Claude for code review"}]}
 
 User: "what did claude say" or "claude ne dedi" or "son claude yanıtı"
-{"intent":"claude_last_response","execution_plan":[{"step":1,"tool":"claude_last","parameters":{},"store_as":"context.answer","reason":"retrieve last response from active Claude session"}]}`;
+{"intent":"claude_last_response","execution_plan":[{"step":1,"tool":"claude_last","parameters":{},"store_as":"context.answer","reason":"retrieve last response from active Claude session"}]}
+
+User: "Find the button with the text 'Sunucu Yönetimi' on it and click" (browser session active)
+{"intent":"session_click_by_text","execution_plan":[{"step":1,"tool":"session_step","parameters":{"instruction":"Click the button with the text 'Sunucu Yönetimi'"},"reason":"session_step uses multi-strategy text targeting — always preferred over vision_click for in-browser element interaction"}]}
+
+User: "X butonuna tıkla" or "Giriş butonuna tıkla" (Turkish: click the X button — browser active)
+{"intent":"session_click_button","execution_plan":[{"step":1,"tool":"session_step","parameters":{"instruction":"Giriş butonuna tıkla"},"reason":"session_step finds element by text label across DOM strategies"}]}`;
 
 function parseJSON(str) {
   try { return JSON.parse(str.trim()); } catch {}
@@ -233,8 +243,13 @@ async function buildPlan(text, { skipPageContext = false } = {}) {
     const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
 
     // Inject rolling conversation history (enables "click that", "do it again", etc.)
-    for (const entry of conversation.getHistory()) {
+    const history = conversation.getHistory();
+    for (const entry of history) {
       messages.push({ role: entry.role, content: entry.content });
+    }
+    // Boundary marker: tells the LLM that everything above is DONE
+    if (history.length > 0) {
+      messages.push({ role: 'assistant', content: 'Previous requests completed. Ready for the next task.' });
     }
 
     // Prepend active page context if a browser session is open.

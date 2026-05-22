@@ -139,6 +139,14 @@ function isComplex(text) {
   // Explicit Claude triggers — these specifically route to claude_start / claude_continue
   if (/\b(use claude|tell claude|ask claude to|have claude|claude ile yap|claude'a söyle|claude'a sor|claude koda|claude koddan)\b/i.test(t)) return true;
   if (/\b(start claude|stop claude|claude session|claude oturumu)\b/i.test(t)) return true;
+  // Browser element interaction — needs planner → session_step (not classifyIntent)
+  if (/\b(click the|click on the|find the|locate the)\b.{1,60}\b(button|link|input|field|checkbox|tab|dropdown|menu)\b/i.test(text)) return true;
+  if (/\b(button|link|field|input)\b.{1,40}\b(with text|labeled|that says|named|containing)\b/i.test(t)) return true;
+  if (/\bfind.{1,30}\band click\b/i.test(t)) return true;
+  // Turkish: element targeting
+  if (/\b(butonuna|linkine|alanına|kutusuna|düğmesine)\s+tıkla\b/i.test(t)) return true;
+  if (/\b(bul\s+ve|bul\s*,?\s*)\s*tıkla\b/i.test(t)) return true;
+  if (/\b(yazılı|adlı|metinli|yazan)\b.{1,30}\b(buton|düğme|bağlantı|link|alan)\b/i.test(t)) return true;
   return false;
 }
 
