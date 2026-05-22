@@ -30,47 +30,56 @@ async function execute(text, { notify, submit = true } = {}) {
     // which would inject irrelevant page context into every planner call.
     if (isSessionActive() && !isSessionAlive()) stopSession();
 
-    // When a browser session is active, unrecognised commands go straight to the planner.
-    // The planner knows session_step / stop_session / save_recording etc.
-    if (isSessionActive()) {
-      if (notify) notify('status', { state: 'processing', text: 'planning…' });
-      const plan = await buildPlan(text);
-      if (plan) {
-        if (notify && plan.execution_plan?.length) {
-          const lines = plan.execution_plan.map(s =>
-            `${s.step}. ${s.tool}${s.reason ? ` — ${s.reason}` : ''}`
-          );
-          notify('plan', { text: `📋 ${lines.length} adım:\n${lines.join('\n')}` });
+    try {
+      // When a browser session is active, unrecognised commands go straight to the planner.
+      // The planner knows session_step / stop_session / save_recording etc.
+      if (isSessionActive()) {
+        if (notify) notify('status', { state: 'processing', text: 'planning…' });
+        const plan = await buildPlan(text);
+        if (plan) {
+          if (notify && plan.execution_plan?.length) {
+            const lines = plan.execution_plan.map(s =>
+              `${s.step}. ${s.tool}${s.reason ? ` — ${s.reason}` : ''}`
+            );
+            notify('plan', { text: `📋 ${lines.length} adım:\n${lines.join('\n')}` });
+          }
+          const result = await runPlan(plan, notify);
+          return withScreenshot(result);
         }
-        const result = await runPlan(plan, notify);
-        return withScreenshot(result);
       }
-    }
 
-    // Complex requests skip the intent classifier — it would misroute them (e.g. mapping
-    // "play Drake on YouTube" to openApp("youtube") which fails). Go straight to the planner.
-    if (!isComplex(text)) {
-      const intent = await classifyIntent(text);
-      if (intent) cmd = intent;
-    }
+      // Complex requests skip the intent classifier — it would misroute them (e.g. mapping
+      // "play Drake on YouTube" to openApp("youtube") which fails). Go straight to the planner.
+      if (!isComplex(text)) {
+        const intent = await classifyIntent(text);
+        if (intent) cmd = intent;
+      }
 
-    if (cmd.type === 'type') {
-      if (notify) notify('status', { state: 'processing', text: 'planning…' });
-      // skipPageContext: true — avoids injecting stale browser page content for non-browser commands
-      const plan = await buildPlan(text, { skipPageContext: true });
-      if (plan) {
-        // Emit the step breakdown so bot.js can forward it to Telegram
-        if (notify && plan.execution_plan?.length) {
-          const lines = plan.execution_plan.map(s =>
-            `${s.step}. ${s.tool}${s.reason ? ` — ${s.reason}` : ''}`
-          );
-          notify('plan', { text: `📋 ${lines.length} adım:\n${lines.join('\n')}` });
+      if (cmd.type === 'type') {
+        if (notify) notify('status', { state: 'processing', text: 'planning…' });
+        // skipPageContext: true — avoids injecting stale browser page content for non-browser commands
+        const plan = await buildPlan(text, { skipPageContext: true });
+        if (plan) {
+          // Emit the step breakdown so bot.js can forward it to Telegram
+          if (notify && plan.execution_plan?.length) {
+            const lines = plan.execution_plan.map(s =>
+              `${s.step}. ${s.tool}${s.reason ? ` — ${s.reason}` : ''}`
+            );
+            notify('plan', { text: `📋 ${lines.length} adım:\n${lines.join('\n')}` });
+          }
+          const result = await runPlan(plan, notify);
+          return withScreenshot(result);
         }
-        const result = await runPlan(plan, notify);
-        return withScreenshot(result);
+        // All AI paths returned null (model gave no usable output)
+        return { text: `Komutu anlayamadım: "${text.slice(0, 60)}"${text.length > 60 ? '…' : ''}` };
       }
-      // All AI paths exhausted — return error instead of silently typing raw input
-      return { text: `Komutu anlayamadım: "${text.slice(0, 60)}"${text.length > 60 ? '…' : ''}` };
+    } catch (err) {
+      // Surface rate-limit and auth errors clearly instead of swallowing them
+      if (err?.code === 'RATE_LIMIT' || err?.code === 'AUTH') {
+        if (notify) notify('status', { state: 'error', text: err.code });
+        return { text: `⚠️ ${err.message}` };
+      }
+      throw err;
     }
   }
 

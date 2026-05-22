@@ -234,7 +234,18 @@ async function buildPlan(text, { skipPageContext = false } = {}) {
     if (plan.intent === 'unclear' || plan.execution_plan.length === 0) return null;
 
     return plan;
-  } catch {
+  } catch (err) {
+    const msg = err?.message || '';
+    const status = err?.status ?? err?.response?.status;
+    // Re-throw structured errors so executor can surface them to the user
+    if (err?.code === 'RATE_LIMIT' || err?.code === 'AUTH') throw err;
+    console.error('[planner] LLM error:', status ? `HTTP ${status}` : msg.slice(0, 120));
+    if (status === 429 || msg.includes('rate limit') || msg.includes('Rate limit')) {
+      throw Object.assign(new Error('API rate limit reached — wait a moment before retrying'), { code: 'RATE_LIMIT' });
+    }
+    if (status === 401 || status === 403) {
+      throw Object.assign(new Error('API key invalid or expired — check GROQ_API_KEY in Settings'), { code: 'AUTH' });
+    }
     return null;
   }
 }

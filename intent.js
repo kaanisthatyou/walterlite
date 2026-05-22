@@ -195,7 +195,16 @@ async function classifyIntent(text) {
     if (json.cmd === 'generate_image') return json.prompt ? { type: 'ai', service: 'gemini', mode: 'image', prompt: String(json.prompt) } : null;
 
     return INTENT_MAP[json.cmd] || null;
-  } catch {
+  } catch (err) {
+    const msg = err?.message || '';
+    const status = err?.status ?? err?.response?.status;
+    console.error('[intent] LLM error:', status ? `HTTP ${status}` : msg.slice(0, 120));
+    if (status === 429 || msg.includes('rate limit') || msg.includes('Rate limit')) {
+      throw Object.assign(new Error('API rate limit reached — wait a moment before retrying'), { code: 'RATE_LIMIT' });
+    }
+    if (status === 401 || status === 403) {
+      throw Object.assign(new Error('API key invalid or expired — check GROQ_API_KEY in Settings'), { code: 'AUTH' });
+    }
     return null;
   }
 }
