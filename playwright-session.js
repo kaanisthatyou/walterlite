@@ -47,13 +47,23 @@ async function acquireContext() {
     if (ownedCtx) { ownedCtx.pages(); return ownedCtx; }
   } catch {}
 
-  // 2. Connect via CDP (browser running with --remote-debugging-port=9222)
-  // CDP is Chromium-only — always use chromium API regardless of detected browser
-  try {
-    const browser = await chromium.connectOverCDP('http://localhost:9222', { timeout: 2000 });
-    const contexts = browser.contexts();
-    return contexts.length > 0 ? contexts[0] : await browser.newContext();
-  } catch {}
+  // 2. Connect via CDP — but only bother if the port is likely open.
+  // Skip the 2000ms wait when Firefox is already running without CDP.
+  // A quick TCP probe (500ms) avoids blocking the Win32 fallback path.
+  const cdpLikely = await new Promise(resolve => {
+    const net = require('net');
+    const sock = net.createConnection({ port: 9222, host: 'localhost' });
+    const timer = setTimeout(() => { sock.destroy(); resolve(false); }, 500);
+    sock.on('connect', () => { clearTimeout(timer); sock.destroy(); resolve(true); });
+    sock.on('error',   () => { clearTimeout(timer); resolve(false); });
+  });
+  if (cdpLikely) {
+    try {
+      const browser = await chromium.connectOverCDP('http://localhost:9222', { timeout: 2000 });
+      const contexts = browser.contexts();
+      return contexts.length > 0 ? contexts[0] : await browser.newContext();
+    } catch {}
+  }
 
   // 3. Launch browser with real profile (only when it isn't running)
   if (await isBrowserRunning()) {

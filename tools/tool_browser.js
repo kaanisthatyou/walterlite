@@ -100,9 +100,9 @@ async function openUrl(rawUrl) {
 
   if (parseInt(count.trim(), 10) > 0) {
     await switchTo(processName);
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 200));
     await sendHotkey('ctrl+l');
-    await new Promise(r => setTimeout(r, 400));
+    await new Promise(r => setTimeout(r, 200));
     await pasteText(url, { submit: true });
   } else if (detected) {
     const escaped = detected.exePath.replace(/'/g, "''");

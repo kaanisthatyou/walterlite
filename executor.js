@@ -13,6 +13,7 @@ const { classifyIntent }  = require('./intent');
 const { buildPlan }       = require('./planner');
 const { runPlan }         = require('./orchestrator');
 const { isSessionActive, isSessionAlive, stopSession } = require('./playwright-session');
+const { openUrl } = require('./tools/tool_browser');
 
 // Entry point — regex → intent LLM → agentic planner → dispatch.
 async function execute(text, { notify, submit = true } = {}) {
@@ -148,6 +149,12 @@ async function dispatch(cmd, originalText, { notify, submit } = {}) {
   };
 
   switch (cmd.type) {
+
+    case 'url': {
+      setStatus('processing', cmd.url.slice(0, 50));
+      const result = await openUrl(cmd.url);
+      return result;
+    }
 
     case 'type': {
       setStatus('typing', cmd.text.slice(0, 32));

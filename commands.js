@@ -5,6 +5,15 @@ const RULES = [
   // Escape hatch: force-type everything after "type "
   [/^type\s+(.+)$/i,                   m => ({ type: 'type', text: m[1], _explicit: true })],
 
+  // ── URL / browser navigation — must come before "open" and "go to" rules ──
+  // Matches any https/http URL with or without a navigation verb, and bare IP:port.
+  [/^(?:open|go to|navigate to|visit|browse to|git|aç)\s+(https?:\/\/\S+)$/i,
+    m => ({ type: 'url', url: m[1] })],
+  [/^(https?:\/\/\S+)\s*(?:adresine git|adresine aç|adresine|git|aç)?$/i,
+    m => ({ type: 'url', url: m[1] })],
+  [/^(?:git\s+|aç\s+|open\s+|go to\s+)?((?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:\/\S*)?)$/i,
+    m => ({ type: 'url', url: m[1] })],
+
   // ── Window switching ──────────────────────────────────────────────────────
   [/^claude$|^clu$/i,                  () => ({ type: 'switch', target: 'claude' })],
   [/^obsidian$|^obs$/i,                () => ({ type: 'switch', target: 'obsidian' })],
