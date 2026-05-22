@@ -9,6 +9,7 @@ const {
   openApp, listWindows, playPause, mediaNext, mediaPrev,
 } = require('./system');
 const { parseCommand }    = require('./commands');
+const { extractEntities } = require('./entity-extractor');
 const { classifyIntent }  = require('./intent');
 const { buildPlan }       = require('./planner');
 const { runPlan }         = require('./orchestrator');
@@ -32,11 +33,23 @@ async function execute(text, { notify, submit = true } = {}) {
     if (isSessionActive() && !isSessionAlive()) stopSession();
 
     try {
+      // Pre-extract entities so the planner receives structured context
+      let planText = text;
+      try {
+        const entities = await extractEntities(text);
+        if (entities) {
+          const parts = Object.entries(entities)
+            .filter(([, v]) => v !== null && v !== '')
+            .map(([k, v]) => `${k}=${v}`);
+          if (parts.length) planText = `[Entities: ${parts.join(', ')}] ${text}`;
+        }
+      } catch {}
+
       // When a browser session is active, unrecognised commands go straight to the planner.
       // The planner knows session_step / stop_session / save_recording etc.
       if (isSessionActive()) {
         if (notify) notify('status', { state: 'processing', text: 'planning…' });
-        const plan = await buildPlan(text);
+        const plan = await buildPlan(planText);
         if (plan) {
           if (notify && plan.execution_plan?.length) {
             const lines = plan.execution_plan.map(s =>
@@ -59,7 +72,7 @@ async function execute(text, { notify, submit = true } = {}) {
       if (cmd.type === 'type') {
         if (notify) notify('status', { state: 'processing', text: 'planning…' });
         // skipPageContext: true — avoids injecting stale browser page content for non-browser commands
-        const plan = await buildPlan(text, { skipPageContext: true });
+        const plan = await buildPlan(planText, { skipPageContext: true });
         if (plan) {
           // Emit the step breakdown so bot.js can forward it to Telegram
           if (notify && plan.execution_plan?.length) {

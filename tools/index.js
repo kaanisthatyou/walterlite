@@ -5,6 +5,7 @@ const { readClipboard, writeClipboard }       = require('./tool_clipboard');
 const { webSearch }                           = require('./tool_web_search');
 const { openUrl, browserSearch, browserClickFirst } = require('./tool_browser');
 const { youtubeFirstVideo }                   = require('./tool_youtube_search');
+const { youtubeChannelLatest }                = require('./tool_youtube_channel');
 const { recall, learn }                       = require('./tool_memory');
 const { scanPath, scanPage }                  = require('./tool_scan');
 const {
@@ -30,6 +31,7 @@ const TOOL_REGISTRY = {
   browser_search:       ({ site, query })  => browserSearch(site, query),
   browser_click_first:  ()                 => browserClickFirst(),
   youtube_first_video:  ({ query })        => youtubeFirstVideo(query),
+  youtube_channel_latest: ({ query })      => youtubeChannelLatest(query),
   recall:               ({ key })           => recall({ key }),
   learn:                ({ key, value })   => learn({ key, value }),
   scan_path:            ({ directory })    => scanPath(directory),

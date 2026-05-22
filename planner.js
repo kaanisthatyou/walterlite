@@ -1,7 +1,7 @@
 // Planner model config — separate from the intent classifier so you can use
 // a fast/cheap model for intent (INTENT_MODEL) and a smarter one for planning (PLANNER_MODEL).
 //
-//   PLANNER_MODEL  — defaults to INTENT_MODEL → llama-3.3-70b-versatile
+//   PLANNER_MODEL  — defaults to llama-3.3-70b-versatile (decoupled from INTENT_MODEL)
 //   PLANNER_API_KEY — defaults to INTENT_API_KEY → GROQ_API_KEY
 //
 // Provider is auto-detected from the model name:
@@ -14,7 +14,7 @@ const conversation = require('./conversation');
 let client;
 
 function getPlannerModel() {
-  return process.env.PLANNER_MODEL || process.env.INTENT_MODEL || 'llama-3.3-70b-versatile';
+  return process.env.PLANNER_MODEL || 'llama-3.3-70b-versatile';
 }
 
 function getPlannerBaseURL() {
@@ -58,6 +58,7 @@ TOOLS:
   open_file(name)              finds a file by partial name on Desktop, Documents, or Downloads and opens it with the default app
   browser_search(site, query)  opens a site's search results page (youtube, google, reddit, etc.) — user will browse manually
   youtube_first_video(query)   searches YouTube and returns the watch URL of the first result — use for all "play on YouTube" requests
+  youtube_channel_latest(query)  fetches the latest video directly from a YouTube channel page — use for "latest video from [channel]" requests; query is the channel name or @handle
   open_url(url)                opens any URL directly in Firefox
   switch_to(app)               brings a running app window into focus by name
   open_app(name)               launches a Windows application by name
@@ -97,6 +98,7 @@ RULES:
 6. CLAUDE IS OPT-IN: Use ask_claude / claude_start / claude_continue ONLY when the user explicitly names Claude ("ask claude", "use claude", "claude'a sor", "tell claude to", "claude ile yap", etc.). Never auto-select Claude because a task seems complex — default AI tool is always ask_llm. Claude is the user's deliberate choice.
 7. Spotify desktop app: switch_to(spotify) → send_hotkey(ctrl+k) → wait(300) → paste_text(query) → wait(800) → send_hotkey(enter). Always paste_text for the search query — it handles Turkish/Unicode and is faster.
 8. PLAY/OPEN a specific video on YouTube: youtube_first_video(query) → open_url(url). Never use web_search or browser_search for this.
+8a. LATEST VIDEO FROM CHANNEL: "X kanalının son videosu", "latest video from X", "X'in en son videosu" → youtube_channel_latest(channelName) → open_url(url). Preferred over web_search + youtube_first_video for channel-specific latest video requests.
 9. SEARCH YouTube (user explicitly wants to browse results): browser_search("youtube", query).
 10. Same site:domain pattern works for any site — always prefer finding the direct URL and using open_url over showing a results page.
 11. After open_url to any video or music URL, add NO further steps (no space, no enter, no send_hotkey) — the page auto-plays immediately.
@@ -187,6 +189,9 @@ User: "firefox cdp kur" or "setup firefox cdp" (one-time setup for persistent Pl
 
 User: "Imorr kanalından en son videoyu aç" (Turkish: open the latest video from Imorr's channel)
 {"intent":"play_channel_latest_video","execution_plan":[{"step":1,"tool":"recall","parameters":{"key":"youtube_channels:imorr"},"store_as":"context.channel_url","reason":"check memory for known channel URL before searching"},{"step":2,"tool":"web_search","parameters":{"query":"Imorr YouTube kanal @Imorr"},"store_as":"context.raw","skip_if":"context.channel_url","reason":"find channel URL only if recall returned null"},{"step":3,"tool":"extract_value","parameters":{"text":"{{context.raw}}","what":"YouTube channel URL for Imorr (youtube.com/@Name or youtube.com/c/Name format)"},"store_as":"context.channel_url","skip_if":"context.channel_url","reason":"extract clean channel URL — skip if recall already found it"},{"step":4,"tool":"learn","parameters":{"key":"youtube_channels:imorr","value":"{{context.channel_url}}"},"reason":"save discovered URL to memory (harmless if already known)"},{"step":5,"tool":"youtube_first_video","parameters":{"query":"Imorr en son video site:youtube.com"},"store_as":"context.url","reason":"get latest video from channel"},{"step":6,"tool":"open_url","parameters":{"url":"{{context.url}}"},"reason":"open the video"}]}
+
+User: "Imorr kanalının son videosunu aç" or "open latest video from Imorr"
+{"intent":"play_channel_latest","execution_plan":[{"step":1,"tool":"youtube_channel_latest","parameters":{"query":"Imorr"},"store_as":"context.url","reason":"fetch latest video directly from channel page"},{"step":2,"tool":"open_url","parameters":{"url":"{{context.url}}"},"reason":"open the video"}]}
 
 User: "10.16.40.250:8000 adresine git" (bare IP navigation — no protocol needed)
 {"intent":"open_local_server","execution_plan":[{"step":1,"tool":"open_url","parameters":{"url":"10.16.40.250:8000"},"reason":"open_url normalizes bare IP:port to http:// automatically"}]}
