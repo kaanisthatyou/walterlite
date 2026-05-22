@@ -302,6 +302,40 @@ async function parseInstruction(instruction) {
   return JSON.parse(match[0]);
 }
 
+// Smart settle: wait duration depends on whether the action could trigger navigation/XHR
+async function settleAfterAction(page, action, value) {
+  const submitKeys = ['enter', 'Return'];
+
+  if (action === 'navigate') return; // goto already waited for domcontentloaded
+
+  if (action === 'fill' || (action === 'press' && submitKeys.some(k => (value || '').toLowerCase().includes(k.toLowerCase())))) {
+    // May trigger XHR validation or form submission
+    await Promise.race([
+      page.waitForLoadState('networkidle', { timeout: 2000 }),
+      new Promise(r => setTimeout(r, 1000)),
+    ]).catch(() => {});
+    return;
+  }
+
+  if (action === 'click') {
+    // May navigate or open a dialog
+    await Promise.race([
+      page.waitForLoadState('domcontentloaded', { timeout: 3000 }),
+      new Promise(r => setTimeout(r, 800)),
+    ]).catch(() => {});
+    return;
+  }
+
+  if (action === 'press') {
+    // Tab/Escape/arrows — never trigger navigation
+    await new Promise(r => setTimeout(r, 300));
+    return;
+  }
+
+  // scroll, hover, select, wait — standard settle
+  await new Promise(r => setTimeout(r, 500));
+}
+
 async function applyAction(parsed) {
   const { action, selector, text: textHint, value } = parsed;
   switch (action) {
@@ -346,7 +380,7 @@ async function applyAction(parsed) {
     default:
       throw new Error(`Bilinmeyen action: ${action}`);
   }
-  await sessionPage.waitForTimeout(500);
+  await settleAfterAction(sessionPage, action, value);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
