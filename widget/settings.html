@@ -183,8 +183,12 @@
         <input type="password" id="intentKey" placeholder="sk-or-… (OpenRouter) or same Groq key" autocomplete="off" spellcheck="false" />
       </div>
       <div class="field">
-        <label>Intent Model</label>
-        <input type="text" id="intentModel" placeholder="llama-3.3-70b-versatile  or  anthropic/claude-3-haiku" autocomplete="off" spellcheck="false" />
+        <label>Intent Model — fast classifier (64 tokens, picks command type)</label>
+        <input type="text" id="intentModel" placeholder="llama-3.1-8b-instant  (fast) or llama-3.3-70b-versatile" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="field">
+        <label>Planner Model — task planner (1024 tokens, builds step plans) — defaults to Intent Model</label>
+        <input type="text" id="plannerModel" placeholder="llama-3.3-70b-versatile  or  google/gemini-2.0-flash-exp:free" autocomplete="off" spellcheck="false" />
       </div>
     </div>
 
@@ -202,10 +206,11 @@
   <script>
     const tokenInput       = document.getElementById('token');
     const userIdInput      = document.getElementById('userId');
-    const groqInput        = document.getElementById('groqKey');
-    const intentKeyInput   = document.getElementById('intentKey');
-    const intentModelInput = document.getElementById('intentModel');
-    const msg              = document.getElementById('msg');
+    const groqInput         = document.getElementById('groqKey');
+    const intentKeyInput    = document.getElementById('intentKey');
+    const intentModelInput  = document.getElementById('intentModel');
+    const plannerModelInput = document.getElementById('plannerModel');
+    const msg               = document.getElementById('msg');
 
     function showMsg(text, type) {
       msg.textContent = text;
@@ -213,12 +218,13 @@
       setTimeout(() => { msg.textContent = ''; msg.className = 'msg'; }, 2500);
     }
 
-    window.walterSettings.getSettings().then(({ token, userId, groqKey, intentKey, intentModel }) => {
-      if (token)        tokenInput.value       = token;
-      if (userId)       userIdInput.value      = userId;
-      if (groqKey)      groqInput.value        = groqKey;
-      if (intentKey)    intentKeyInput.value   = intentKey;
-      if (intentModel)  intentModelInput.value = intentModel;
+    window.walterSettings.getSettings().then(({ token, userId, groqKey, intentKey, intentModel, plannerModel }) => {
+      if (token)         tokenInput.value        = token;
+      if (userId)        userIdInput.value       = userId;
+      if (groqKey)       groqInput.value         = groqKey;
+      if (intentKey)     intentKeyInput.value    = intentKey;
+      if (intentModel)   intentModelInput.value  = intentModel;
+      if (plannerModel)  plannerModelInput.value = plannerModel;
     });
 
     document.getElementById('closeBtn').addEventListener('click',  () => window.walterSettings.close());
@@ -230,9 +236,10 @@
       const groqKey      = groqInput.value.trim();
       const intentKey    = intentKeyInput.value.trim();
       const intentModel  = intentModelInput.value.trim();
+      const plannerModel = plannerModelInput.value.trim();
       if (!token || !userId) { showMsg('token and user ID required', 'err'); return; }
       try {
-        await window.walterSettings.saveSettings({ token, userId, groqKey, intentKey, intentModel });
+        await window.walterSettings.saveSettings({ token, userId, groqKey, intentKey, intentModel, plannerModel });
         showMsg('saved — bot restarted', 'ok');
         setTimeout(() => window.walterSettings.close(), 1200);
       } catch (err) {

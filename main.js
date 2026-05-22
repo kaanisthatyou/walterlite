@@ -7,6 +7,7 @@ const { switchTo }              = require('./windows');
 const { readEnv, writeEnv }     = require('./env-utils');
 const { transcribeAudio, resetClient: resetSttClient } = require('./stt');
 const { resetClient: resetIntentClient }              = require('./intent');
+const { resetClient: resetPlannerClient }             = require('./planner');
 const { execute }               = require('./executor');
 
 let mainWindow;
@@ -171,28 +172,32 @@ ipcMain.on('settings-close', () => {
 ipcMain.handle('settings-get', () => {
   const env = readEnv();
   return {
-    token:       env.TELEGRAM_BOT_TOKEN || '',
-    userId:      env.ALLOWED_USER_ID    || '',
-    groqKey:     env.GROQ_API_KEY       || '',
-    intentKey:   env.INTENT_API_KEY     || '',
-    intentModel: env.INTENT_MODEL       || '',
+    token:        env.TELEGRAM_BOT_TOKEN || '',
+    userId:       env.ALLOWED_USER_ID    || '',
+    groqKey:      env.GROQ_API_KEY       || '',
+    intentKey:    env.INTENT_API_KEY     || '',
+    intentModel:  env.INTENT_MODEL       || '',
+    plannerModel: env.PLANNER_MODEL      || '',
   };
 });
 
-ipcMain.handle('settings-save', async (_, { token, userId, groqKey, intentKey, intentModel }) => {
+ipcMain.handle('settings-save', async (_, { token, userId, groqKey, intentKey, intentModel, plannerModel }) => {
   writeEnv({
     TELEGRAM_BOT_TOKEN: token,
     ALLOWED_USER_ID:    userId,
-    GROQ_API_KEY:       groqKey     || '',
-    INTENT_API_KEY:     intentKey   || '',
-    INTENT_MODEL:       intentModel || '',
+    GROQ_API_KEY:       groqKey      || '',
+    INTENT_API_KEY:     intentKey    || '',
+    INTENT_MODEL:       intentModel  || '',
+    PLANNER_MODEL:      plannerModel || '',
   });
   process.env.TELEGRAM_BOT_TOKEN = token;
   process.env.ALLOWED_USER_ID    = userId;
-  if (groqKey)     { process.env.GROQ_API_KEY    = groqKey;    resetSttClient(); }
-  if (intentKey)   { process.env.INTENT_API_KEY  = intentKey; }
-  if (intentModel) { process.env.INTENT_MODEL    = intentModel; }
+  if (groqKey)      { process.env.GROQ_API_KEY    = groqKey;      resetSttClient(); }
+  if (intentKey)    { process.env.INTENT_API_KEY  = intentKey; }
+  if (intentModel)  { process.env.INTENT_MODEL    = intentModel; }
+  if (plannerModel) { process.env.PLANNER_MODEL   = plannerModel; }
   resetIntentClient();
+  resetPlannerClient();
 
   if (typeof stopCurrentBot === 'function') {
     try { stopCurrentBot(); } catch {}

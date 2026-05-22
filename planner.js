@@ -1,17 +1,46 @@
+// Planner model config — separate from the intent classifier so you can use
+// a fast/cheap model for intent (INTENT_MODEL) and a smarter one for planning (PLANNER_MODEL).
+//
+//   PLANNER_MODEL  — defaults to INTENT_MODEL → llama-3.3-70b-versatile
+//   PLANNER_API_KEY — defaults to INTENT_API_KEY → GROQ_API_KEY
+//
+// Provider is auto-detected from the model name:
+//   contains "/"  (e.g. "google/gemini-2.0-flash-exp:free")  → OpenRouter
+//   no "/"        (e.g. "llama-3.3-70b-versatile")           → Groq
+
 const { OpenAI } = require('openai');
 const conversation = require('./conversation');
 
 let client;
 
+function getPlannerModel() {
+  return process.env.PLANNER_MODEL || process.env.INTENT_MODEL || 'llama-3.3-70b-versatile';
+}
+
+function getPlannerBaseURL() {
+  if (process.env.PLANNER_BASE_URL) return process.env.PLANNER_BASE_URL;
+  if (process.env.INTENT_BASE_URL)  return process.env.INTENT_BASE_URL;
+  return getPlannerModel().includes('/')
+    ? 'https://openrouter.ai/api/v1'
+    : 'https://api.groq.com/openai/v1';
+}
+
+function getPlannerApiKey() {
+  return process.env.PLANNER_API_KEY || process.env.INTENT_API_KEY || process.env.GROQ_API_KEY || '';
+}
+
 function getClient() {
   if (!client) {
-    client = new OpenAI({
-      apiKey: process.env.INTENT_API_KEY || process.env.GROQ_API_KEY || '',
-      baseURL: 'https://api.groq.com/openai/v1',
-    });
+    const baseURL = getPlannerBaseURL();
+    const extraHeaders = baseURL.includes('openrouter')
+      ? { 'HTTP-Referer': 'https://walterlite', 'X-Title': 'WALTER/lite' }
+      : {};
+    client = new OpenAI({ apiKey: getPlannerApiKey(), baseURL, defaultHeaders: extraHeaders });
   }
   return client;
 }
+
+function resetClient() { client = null; }
 
 const SYSTEM_PROMPT = `You are WALTER's Task Planner. WALTER is a Windows desktop AI agent controlled via voice or Telegram.
 
@@ -221,7 +250,7 @@ async function buildPlan(text, { skipPageContext = false } = {}) {
     messages.push({ role: 'user', content: userContent });
 
     const res = await getClient().chat.completions.create({
-      model: process.env.INTENT_MODEL || 'llama-3.3-70b-versatile',
+      model: getPlannerModel(),
       messages,
       max_tokens: 1024,
       temperature: 0,
@@ -250,4 +279,4 @@ async function buildPlan(text, { skipPageContext = false } = {}) {
   }
 }
 
-module.exports = { buildPlan };
+module.exports = { buildPlan, resetClient };
