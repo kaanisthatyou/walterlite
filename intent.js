@@ -27,7 +27,8 @@ function getApiKey() {
 }
 
 function getModel() {
-  return process.env.INTENT_MODEL || 'llama-3.3-70b-versatile'; // free on Groq, ~2.5x better than 8B
+  // Fast 8b model for intent classification — planner uses 70b separately via PLANNER_MODEL
+  return process.env.INTENT_MODEL || 'llama-3.1-8b-instant';
 }
 
 function buildClient() {

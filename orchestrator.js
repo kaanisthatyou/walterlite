@@ -36,88 +36,156 @@ const STEP_FALLBACKS = {
   },
 };
 
+// Extracts all {{context.KEY}} references from a parameter tree
+function extractDeps(params) {
+  const deps = new Set();
+  function scan(v) {
+    if (typeof v === 'string') {
+      for (const m of v.matchAll(/\{\{context\.(\w+)\}\}/g)) deps.add(m[1]);
+    } else if (Array.isArray(v)) {
+      v.forEach(scan);
+    } else if (v && typeof v === 'object') {
+      Object.values(v).forEach(scan);
+    }
+  }
+  scan(params);
+  return deps;
+}
+
+// Groups steps into waves: all steps in a wave can run in parallel.
+// A step is ready when all its {{context.KEY}} dependencies have been produced
+// by previous waves. skip_if references count as dependencies too.
+function computeWaves(steps) {
+  const produced = new Set();
+  const remaining = [...steps];
+  const waves = [];
+
+  while (remaining.length) {
+    const wave = [];
+    const deferred = [];
+
+    for (const step of remaining) {
+      const deps = extractDeps(step.parameters || {});
+      // Also treat skip_if as a dependency (it references a context key)
+      if (step.skip_if) {
+        const skipKey = step.skip_if.replace(/^context\./, '');
+        deps.add(skipKey);
+      }
+      const ready = [...deps].every(d => produced.has(d));
+      if (ready) {
+        wave.push(step);
+      } else {
+        deferred.push(step);
+      }
+    }
+
+    if (!wave.length) {
+      // Circular / unresolvable — fall back to sequential for remaining steps
+      waves.push(...deferred.map(s => [s]));
+      break;
+    }
+
+    // Mark all store_as keys produced by this wave
+    for (const step of wave) {
+      if (step.store_as) produced.add(step.store_as.replace(/^context\./, ''));
+    }
+    waves.push(wave);
+    remaining.splice(0, remaining.length, ...deferred);
+  }
+
+  return waves;
+}
+
+// Runs a single step: handles skip_if, param resolution, retry, fallback, vision error reporting.
+// Returns { storeKey, result, tool } — does NOT write to context (caller applies all wave results).
+async function runStep(step, context, total, notifyFn) {
+  // skip_if: skip this step when the referenced context key is already a non-null value
+  if (step.skip_if) {
+    const skipKey = step.skip_if.replace(/^context\./, '');
+    const skipVal = context[skipKey];
+    if (skipVal != null && skipVal !== '' && skipVal !== 'null') {
+      if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'skipped' });
+      return { storeKey: null, result: null, tool: step.tool, skipped: true };
+    }
+  }
+
+  const label = `${step.step}/${total} ${step.tool}…`;
+  if (notifyFn) notifyFn('status', { state: 'processing', text: label });
+  if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'start' });
+
+  let params;
+  try {
+    params = resolveParams(step.parameters || {}, context);
+  } catch (err) {
+    // Missing context = structural failure — skip retries/vision, fail immediately
+    if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'done' });
+    throw new Error(`Step ${step.step} (${step.tool}): ${err.message}`);
+  }
+
+  let result;
+  let attempts = 0;
+  while (attempts < 2) {
+    try {
+      const toolFn = TOOL_REGISTRY[step.tool];
+      if (!toolFn) throw new Error(`Unknown tool: ${step.tool}`);
+      const stepTimeout = TOOL_TIMEOUT_MS[step.tool] ?? STEP_TIMEOUT_MS;
+      result = await Promise.race([
+        toolFn(params),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), stepTimeout)),
+      ]);
+      break;
+    } catch (err) {
+      attempts++;
+      if (attempts < 2) {
+        await new Promise(r => setTimeout(r, 700));
+        continue;
+      }
+      // Both retries failed — try the fallback if one exists
+      const fallbackFn = STEP_FALLBACKS[step.tool];
+      if (fallbackFn) {
+        try {
+          if (notifyFn) notifyFn('status', { state: 'processing', text: `fallback ${step.tool}…` });
+          result = await fallbackFn(params);
+          break;
+        } catch {}
+      }
+      // Vision-guided error reporting: capture what's on screen before throwing
+      let visionResult;
+      try {
+        const analyzeScreen = TOOL_REGISTRY['analyze_screen'];
+        if (analyzeScreen) {
+          visionResult = await Promise.race([
+            analyzeScreen({ question: `Step '${step.tool}' just failed. What is currently on screen? Is there an error message or dialog?` }),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('vision timeout')), 5000)),
+          ]);
+          console.log(`[vision] Step ${step.step} failure context: ${visionResult}`);
+        }
+      } catch {}
+      const screenInfo = visionResult ? `\n\nScreen: ${visionResult}` : '';
+      throw new Error(`Step ${step.step} (${step.tool}) failed: ${err.message}${screenInfo}`);
+    }
+  }
+
+  if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'done' });
+
+  const storeKey = step.store_as ? step.store_as.replace(/^context\./, '') : null;
+  return { storeKey, result, tool: step.tool };
+}
+
 async function runPlan(plan, notifyFn) {
   const context = {};
   let lastResult = null;
   let lastTool = null;
   const total = plan.execution_plan.length;
 
-  for (const step of plan.execution_plan) {
-    // skip_if: skip this step when the referenced context key is already a non-null value
-    if (step.skip_if) {
-      const skipKey = step.skip_if.replace(/^context\./, '');
-      const skipVal = context[skipKey];
-      if (skipVal != null && skipVal !== '' && skipVal !== 'null') {
-        if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'skipped' });
-        continue;
-      }
-    }
-
-    const label = `${step.step}/${total} ${step.tool}…`;
-    if (notifyFn) notifyFn('status', { state: 'processing', text: label });
-    if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'start' });
-
-    let params;
-    try {
-      params = resolveParams(step.parameters || {}, context);
-    } catch (err) {
-      // Missing context = structural failure — skip retries/vision, fail immediately
-      if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'done' });
-      throw new Error(`Step ${step.step} (${step.tool}): ${err.message}`);
-    }
-
-    let result;
-    let attempts = 0;
-    while (attempts < 2) {
-      try {
-        const toolFn = TOOL_REGISTRY[step.tool];
-        if (!toolFn) throw new Error(`Unknown tool: ${step.tool}`);
-        const stepTimeout = TOOL_TIMEOUT_MS[step.tool] ?? STEP_TIMEOUT_MS;
-        result = await Promise.race([
-          toolFn(params),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), stepTimeout)),
-        ]);
-        break;
-      } catch (err) {
-        attempts++;
-        if (attempts < 2) {
-          await new Promise(r => setTimeout(r, 700));
-          continue;
-        }
-        // Both retries failed — try the fallback if one exists
-        const fallbackFn = STEP_FALLBACKS[step.tool];
-        if (fallbackFn) {
-          try {
-            if (notifyFn) notifyFn('status', { state: 'processing', text: `fallback ${step.tool}…` });
-            result = await fallbackFn(params);
-            break;
-          } catch {}
-        }
-        // Vision-guided error reporting: capture what's on screen before throwing
-        let visionResult;
-        try {
-          const analyzeScreen = TOOL_REGISTRY['analyze_screen'];
-          if (analyzeScreen) {
-            visionResult = await Promise.race([
-              analyzeScreen({ question: `Step '${step.tool}' just failed. What is currently on screen? Is there an error message or dialog?` }),
-              new Promise((_, rej) => setTimeout(() => rej(new Error('vision timeout')), 5000)),
-            ]);
-            console.log(`[vision] Step ${step.step} failure context: ${visionResult}`);
-          }
-        } catch {}
-        const screenInfo = visionResult ? `\n\nScreen: ${visionResult}` : '';
-        throw new Error(`Step ${step.step} (${step.tool}) failed: ${err.message}${screenInfo}`);
-      }
-    }
-
-    if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'done' });
-
-    lastResult = result;
-    lastTool = step.tool;
-
-    if (step.store_as) {
-      const key = step.store_as.replace(/^context\./, '');
-      context[key] = result;
+  const waves = computeWaves(plan.execution_plan);
+  for (const wave of waves) {
+    const results = await Promise.all(wave.map(step => runStep(step, context, total, notifyFn)));
+    for (const { storeKey, result, tool, skipped } of results) {
+      if (skipped) continue;
+      if (storeKey) context[storeKey] = result;
+      lastResult = result;
+      lastTool = tool;
     }
   }
 
