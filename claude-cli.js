@@ -7,7 +7,7 @@ const TIMEOUT_MS = 120000; // 2 min — Claude can take a while
 
 async function askClaudeCLI(prompt) {
   return new Promise((resolve, reject) => {
-    const proc = spawn('claude', ['-p', prompt], {
+    const proc = spawn('claude', ['-p', '--dangerously-skip-permissions', prompt], {
       shell: true,
       windowsHide: true,
       env: { ...process.env },

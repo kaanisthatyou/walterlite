@@ -61,7 +61,8 @@ TOOLS:
   open_url(url)                opens any URL directly in Firefox
   switch_to(app)               brings a running app window into focus by name
   open_app(name)               launches a Windows application by name
-  type_text(text)              types text into the focused window (does NOT press Enter)
+  type_text(text)              types text character-by-character via Win32 SendInput — ASCII only, breaks on Turkish/Unicode
+  paste_text(text)             pastes text via clipboard (Ctrl+V) — use this for any non-ASCII, Turkish, or long text; never type_text for Turkish
   send_hotkey(combo)           sends keyboard shortcut: "ctrl+l", "ctrl+k", "enter", "escape", etc.
   take_screenshot()            captures the screen
   read_clipboard()             returns current clipboard text
@@ -92,7 +93,7 @@ RULES:
 4. Keep plans minimal — only add steps that are truly necessary.
 5. Pure knowledge with no live data → one step, ask_llm.
 6. CLAUDE IS OPT-IN: Use ask_claude / claude_start / claude_continue ONLY when the user explicitly names Claude ("ask claude", "use claude", "claude'a sor", "tell claude to", "claude ile yap", etc.). Never auto-select Claude because a task seems complex — default AI tool is always ask_llm. Claude is the user's deliberate choice.
-7. Spotify desktop app: switch_to(spotify) → send_hotkey(ctrl+k) → type_text(query) → wait(500) → send_hotkey(enter).
+7. Spotify desktop app: switch_to(spotify) → send_hotkey(ctrl+k) → wait(300) → paste_text(query) → wait(800) → send_hotkey(enter). Always paste_text for the search query — it handles Turkish/Unicode and is faster.
 8. PLAY/OPEN a specific video on YouTube: youtube_first_video(query) → open_url(url). Never use web_search or browser_search for this.
 9. SEARCH YouTube (user explicitly wants to browse results): browser_search("youtube", query).
 10. Same site:domain pattern works for any site — always prefer finding the direct URL and using open_url over showing a results page.
@@ -252,7 +253,7 @@ async function buildPlan(text, { skipPageContext = false } = {}) {
     const res = await getClient().chat.completions.create({
       model: getPlannerModel(),
       messages,
-      max_tokens: 1024,
+      max_tokens: 2048,
       temperature: 0,
     });
 

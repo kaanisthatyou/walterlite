@@ -18,7 +18,7 @@ const {
 } = require('./tool_claude_session');
 const { switchTo }                            = require('../windows');
 const { sendHotkey }                          = require('../keyboard');
-const { injectText }                          = require('../inject');
+const { injectText, pasteText }               = require('../inject');
 const { openApp, takeScreenshot, setupFirefoxCDP } = require('../system');
 
 const TOOL_REGISTRY = {
@@ -37,6 +37,7 @@ const TOOL_REGISTRY = {
   switch_to:            ({ app })          => switchTo(app),
   open_app:             ({ name })         => openApp(name),
   type_text:            ({ text })         => injectText(text, { submit: false }),
+  paste_text:           ({ text })         => pasteText(text,  { submit: false }),
   send_hotkey:          ({ combo })        => sendHotkey(combo),
   take_screenshot:      ()                 => takeScreenshot(),
   read_clipboard:       ()                 => readClipboard(),

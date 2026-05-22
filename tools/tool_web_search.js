@@ -54,7 +54,9 @@ async function webSearch(query) {
     if (parts.length) results.push(parts.join('\n'));
   }
 
-  return results.length > 0 ? results.join('\n\n') : 'No results found.';
+  // Throw so the orchestrator's Bing fallback fires automatically
+  if (results.length === 0) throw new Error('DuckDuckGo returned no results — may be rate-limited');
+  return results.join('\n\n');
 }
 
 // Fallback search via Bing HTML — used when DuckDuckGo fails or rate-limits.

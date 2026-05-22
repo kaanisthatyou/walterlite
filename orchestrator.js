@@ -57,7 +57,14 @@ async function runPlan(plan, notifyFn) {
     if (notifyFn) notifyFn('status', { state: 'processing', text: label });
     if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'start' });
 
-    const params = resolveParams(step.parameters || {}, context);
+    let params;
+    try {
+      params = resolveParams(step.parameters || {}, context);
+    } catch (err) {
+      // Missing context = structural failure — skip retries/vision, fail immediately
+      if (notifyFn) notifyFn('step', { index: step.step, total, tool: step.tool, state: 'done' });
+      throw new Error(`Step ${step.step} (${step.tool}): ${err.message}`);
+    }
 
     let result;
     let attempts = 0;
@@ -128,8 +135,23 @@ async function runPlan(plan, notifyFn) {
 }
 
 // Recursively resolves {{context.key}} placeholders inside any parameter value.
+// Throws a descriptive error when a parameter is ENTIRELY an unresolved template
+// (e.g. url:"{{context.url}}" where context.url is null/empty) — this almost always
+// means a prior step failed silently and the plan cannot proceed meaningfully.
 function resolveParams(params, context) {
   if (typeof params === 'string') {
+    const fullTemplate = params.match(/^\{\{context\.(\w+)\}\}$/);
+    if (fullTemplate) {
+      const key = fullTemplate[1];
+      const val = context[key];
+      if (val == null || val === '' || String(val) === 'null') {
+        throw Object.assign(
+          new Error(`context.${key} is empty — a previous step produced no result`),
+          { code: 'MISSING_CONTEXT', key }
+        );
+      }
+      return String(val);
+    }
     return params.replace(/\{\{context\.(\w+)\}\}/g, (_, key) =>
       context[key] != null ? String(context[key]) : ''
     );
