@@ -190,6 +190,23 @@
       0%, 100% { transform: scale(1);   opacity: 1; }
       50%       { transform: scale(1.8); opacity: 0.6; }
     }
+
+    #step-progress {
+      font-size: 8px;
+      letter-spacing: 0.5px;
+      color: #1a4070;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      height: 10px;
+      margin-bottom: 2px;
+      transition: color 0.3s, opacity 0.4s;
+      opacity: 0;
+    }
+    #step-progress.active {
+      color: #4a9eff;
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -206,6 +223,7 @@
       <span class="status-label" id="statusLabel">IDLE</span>
     </div>
     <div class="row-bot" id="preview"></div>
+    <div id="step-progress"></div>
     <div class="row-nav">
       <button class="nav-btn"            data-target="claude">CLU</button>
       <button class="nav-btn"            data-target="obsidian">OBS</button>
@@ -335,6 +353,53 @@
 
     micBtn.addEventListener('click', toggleRecording);
     window.walter.onToggleRecording(toggleRecording);
+
+    // ── Step progress display ─────────────────────────────────────────────────
+    const stepProgress = document.getElementById('step-progress');
+    let stepHideTimer = null;
+
+    function showStepProgress(text) {
+      stepProgress.textContent = text;
+      stepProgress.classList.add('active');
+      clearTimeout(stepHideTimer);
+      stepHideTimer = null;
+    }
+
+    function scheduleHideStepProgress() {
+      clearTimeout(stepHideTimer);
+      stepHideTimer = setTimeout(() => {
+        stepProgress.classList.remove('active');
+        stepProgress.textContent = '';
+        stepHideTimer = null;
+      }, 3000);
+    }
+
+    window.walter.onStep(({ index, total, tool, state }) => {
+      if (state === 'start') {
+        showStepProgress(`step ${index}/${total}: ${tool}`);
+      } else if (state === 'done' || state === 'skipped') {
+        if (index >= total) {
+          scheduleHideStepProgress();
+        } else {
+          showStepProgress(`step ${index}/${total}: ${tool} done`);
+        }
+      }
+    });
+
+    window.walter.onPlan(({ text }) => {
+      if (text) {
+        showStepProgress(text);
+        // Auto-hide plan summary after 3s unless a step event overrides it
+        scheduleHideStepProgress();
+      }
+    });
+
+    // Hide step progress when execution returns to idle
+    window.walter.onStatus(({ state }) => {
+      if (state === 'idle' || state === 'error') {
+        scheduleHideStepProgress();
+      }
+    });
   </script>
 </body>
 </html>

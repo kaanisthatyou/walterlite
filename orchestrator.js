@@ -1,5 +1,10 @@
 const { TOOL_REGISTRY } = require('./tools');
 
+// ── Cancellation ─────────────────────────────────────────────────────────────
+let _cancelled = false;
+function cancelCurrentPlan() { _cancelled = true; }
+function resetCancel()        { _cancelled = false; }
+
 const INFORMATIONAL_TOOLS = new Set([
   'ask_llm', 'ask_claude', 'extract_value', 'web_search', 'read_clipboard',
   'claude_start', 'claude_continue', 'claude_last', 'claude_status', 'claude_clear',
@@ -173,6 +178,7 @@ async function runStep(step, context, total, notifyFn) {
 }
 
 async function runPlan(plan, notifyFn) {
+  resetCancel();
   const context = {};
   let lastResult = null;
   let lastTool = null;
@@ -180,6 +186,7 @@ async function runPlan(plan, notifyFn) {
 
   const waves = computeWaves(plan.execution_plan);
   for (const wave of waves) {
+    if (_cancelled) { _cancelled = false; throw new Error('Plan iptal edildi.'); }
     const results = await Promise.all(wave.map(step => runStep(step, context, total, notifyFn)));
     for (const { storeKey, result, tool, skipped } of results) {
       if (skipped) continue;
@@ -233,4 +240,4 @@ function resolveParams(params, context) {
   return params;
 }
 
-module.exports = { runPlan };
+module.exports = { runPlan, cancelCurrentPlan, resetCancel };

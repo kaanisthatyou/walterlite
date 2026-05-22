@@ -1,14 +1,8 @@
-# WALTER — Advanced Pipeline Plan
+# WALTER/lite — Finalization Plan
 
-## What This Is
+## Status: What Is Already Built
 
-WALTER is a voice-and-text Windows computer controller. An always-on-top Electron widget that accepts commands via Telegram (text/voice) or a local mic hotkey, and executes them on your PC.
-
-**Input → Pipeline → Action → Screenshot back to Telegram.**
-
----
-
-## Current Architecture
+The core pipeline is complete and all five original sub-projects are done.
 
 ```
 Input (Telegram text/voice / widget / mic hotkey)
@@ -16,105 +10,77 @@ Input (Telegram text/voice / widget / mic hotkey)
   → isComplex()        gate: skip intent for rich requests
   → classifyIntent()   Groq LLM → simple command object
   → buildPlan()        Groq LLM → JSON execution_plan[]
-  → runPlan()          orchestrator: sequential tool calls
+  → runPlan()          orchestrator: sequential tool calls, retries, fallbacks
   → dispatch()         routes to system modules
   → withScreenshot()   wraps result with screen capture → Telegram
 ```
 
-**Free AI stack:** Groq (LLM + Whisper STT), Claude CLI subprocess, Gemini browser automation.
+### Built and Working
 
----
-
-## The Plan — 5 Sub-projects
-
-Build order: 1 → 2 → 3 → 4 → 5. Sub-projects 1 and 3 can be built in parallel.
-
----
-
-### Sub-project 1 — Browser Foundation
-**Status:** Not started
-
-**Goal:** Zero hardcoding. Any browser. Any URL format. Click anywhere.
-
-**Problems this fixes:**
-- `10.16.40.250:8000 adresine git` → wrong tool (`start_session` instead of `open_url`)
-- Firefox hardcoded — fails if not installed
-- Native Windows app elements not clickable
-
-**What gets built:**
-
-| File | What it does |
+| Component | File(s) |
 |---|---|
-| `browser-detector.js` | Scans registry + known paths for Chrome, Edge, Opera GX, Brave, Firefox. Picks best available. Caches to memory. |
-| `playwright-session.js` | Replace all hardcoded Firefox with `browser-detector.js`. |
-| `tool_browser.js` | URL normalizer: bare IPs (`10.16.40.250:8000`) → `http://...`, bare domains → `https://...` |
-| `ui-automation.js` | PowerShell UI Automation: walks Windows accessibility tree. `ui_click(text)` clicks any native UI element by label. |
-| `tools/index.js` | Register `ui_click` tool. |
-| `planner.js` | Fix: any IP/URL → `open_url`, never `start_session`. Add `ui_click` to tool list. |
+| Browser detector (Chrome/Edge/Brave/Firefox) | `browser-detector.js` |
+| Playwright session automation | `playwright-session.js` |
+| URL normalizer (bare IPs, bare domains) | `tool_browser.js` |
+| UI Automation (Windows accessibility tree) | `ui-automation.js`, `tools/index.js` |
+| Vision tools: `analyze_screen`, `vision_click` | `tools/tool_vision.js` |
+| Conversation history (rolling buffer) | `conversation.js`, `bot.js` |
+| Memory tools: `recall`, `learn` | `tools/tool_memory.js` |
+| Scan tools: `scan_path`, `scan_page` | `tools/tool_scan.js` |
+| Claude CLI single-shot tool: `ask_claude` | `tools/tool_claude_task.js` |
+| Claude multi-turn session tools | `tools/tool_claude_session.js` |
+| Session recording / replay | `playwright-session.js` |
+| Parallel intent model support (OpenRouter routing) | `intent.js` |
+| Step fallbacks (web_search → Bing, open_url → Google) | `orchestrator.js` |
+| Vision-guided error reporting on step failure | `orchestrator.js` |
+| Prefix/macro session runner | `prefix-registry.js`, `macro-runner.js` |
+| Settings UI (env vars live edit) | `widget/settings.html`, `env-utils.js` |
 
 ---
 
-### Sub-project 2 — Vision Layer
-**Status:** Not started
-
-**Goal:** WALTER understands what's on screen using Gemini free vision API.
-
-**Free API:** Gemini 2.0 Flash via Google AI Studio — free, no credit card. Needs `GEMINI_API_KEY` in `.env`.
-
-**What gets built:**
-
-| File | What it does |
-|---|---|
-| `ai.js` | Add `askGeminiVision(prompt, imagePath)` — Gemini free API with image input. |
-| `tools/tool_vision.js` | `analyze_screen(question)` — screenshot + Gemini answers about what's on screen. |
-| `tools/tool_vision.js` | `vision_click(description)` — Gemini finds element coordinates from screenshot → mouse click. |
-| `orchestrator.js` | On step failure: auto-call `analyze_screen` to explain what went wrong. |
-| `planner.js` | Add `analyze_screen` + `vision_click` to tool list + examples. |
+## What Remains — 4-Tier Finalization Plan
 
 ---
 
-### Sub-project 3 — Conversation Context
-**Status:** Not started
+### Tier 1 — Reliability
+**Goal:** WALTER never gets stuck. Failures recover gracefully.
 
-**Goal:** Commands build on each other. "Click that", "go back", "do it again" all work.
-
-**What gets built:**
-
-| File | What it does |
-|---|---|
-| `bot.js` | Rolling buffer: last 10 messages (user + WALTER) kept per session. |
-| `planner.js` | Inject conversation history as multi-turn messages before current command. |
-| `playwright-session.js` | Current page URL + title always included in planner context when session is active. |
+| Item | Status | File(s) |
+|---|---|---|
+| `openApp()` fallback chain (Start Menu → Desktop → Program Files search) | IN PROGRESS | `system.js` |
+| Smarter `session_step` settle wait (adaptive vs. fixed sleep) | IN PROGRESS | `playwright-session.js` |
 
 ---
 
-### Sub-project 4 — Autonomous Self-Correction
-**Status:** Not started
+### Tier 2 — Intelligence
+**Goal:** WALTER understands richer context and handles media/channel commands.
 
-**Goal:** WALTER evaluates its own output and retries without user intervention.
-
-**What gets built:**
-
-| File | What it does |
-|---|---|
-| `orchestrator.js` | After each step: `analyze_screen("did this succeed?")` → if NO, retry with vision context (max 3 attempts). |
-| `tools/tool_vision.js` | `verify_step(expected)` — checks if screen matches expected outcome. |
-| `planner.js` | Support `verify_step` in plans. |
+| Item | Status | File(s) |
+|---|---|---|
+| Entity extractor pre-planner pass (strip entities before LLM routing) | IN PROGRESS | `executor.js`, new `entity-extractor.js` |
+| `youtube_channel_latest(channel)` tool | IN PROGRESS | `tools/tool_youtube_search.js` |
+| `verify_step(expected)` confirmation tool | IN PROGRESS | `tools/tool_vision.js`, `orchestrator.js` |
 
 ---
 
-### Sub-project 5 — AI Pipeline Optimization
-**Status:** Not started
+### Tier 3 — Performance
+**Goal:** Multi-step plans run faster; intent model is decoupled from planner.
 
-**Goal:** Right model for the right task. Parallel execution. Smarter planning.
+| Item | Status | File(s) |
+|---|---|---|
+| Parallel wave execution (independent steps run concurrently) | IN PROGRESS | `orchestrator.js` |
+| Intent model decoupling (dedicated fast model vs. planner model) | IN PROGRESS | `intent.js`, `planner.js` |
 
-**What gets built:**
+---
 
-| File | What it does |
-|---|---|
-| `ai-router.js` | Routes tasks: vision → Gemini, fast/simple → Groq 8b, complex → Groq 70b, reasoning → Claude CLI. |
-| `orchestrator.js` | Parallel execution for steps with no shared context dependencies. |
-| `planner.js` | Confidence scoring — if unclear, ask user before executing. Richer few-shot examples. |
+### Tier 4 — Polish
+**Goal:** Tighter UX. User can abort plans mid-execution. Widget shows live progress.
+
+| Item | Status | File(s) |
+|---|---|---|
+| Confidence gate: planner asks user before low-confidence plans execute | TODO | `planner.js`, `bot.js` |
+| Widget step progress display (Step N/M: tool_name live in widget) | DONE | `widget/index.html`, `widget/preload.js`, `main.js` |
+| `/abort` command cancels running plan mid-execution | DONE | `bot.js`, `orchestrator.js` |
 
 ---
 
@@ -125,10 +91,11 @@ Build order: 1 → 2 → 3 → 4 → 5. Sub-projects 1 and 3 can be built in par
 | `TELEGRAM_BOT_TOKEN` | Yes | Bot token from @BotFather |
 | `ALLOWED_USER_ID` | Yes | Your Telegram numeric ID |
 | `GROQ_API_KEY` | Yes | Groq (free at groq.com) — LLM + STT |
-| `GEMINI_API_KEY` | Sub-project 2+ | Google AI Studio (free, no CC needed) — used for vision (analyze_screen, vision_click) |
+| `GEMINI_API_KEY` | No | Google AI Studio (free) — vision tools |
+| `INTENT_API_KEY` | No | Override API key for intent model |
+| `INTENT_MODEL` | No | Override intent classifier model |
+| `PLANNER_MODEL` | No | Override planner model |
 | `VOICE_HOTKEY` | No | Default: Ctrl+Shift+Space |
-
----
 
 ## Running
 
@@ -136,11 +103,5 @@ Build order: 1 → 2 → 3 → 4 → 5. Sub-projects 1 and 3 can be built in par
 npm start
 ```
 
-Widget appears bottom-right. Telegram bot starts if credentials are set. Local voice works once Groq key is saved via Settings.
-
----
-
-## Detailed Design
-
-Full spec with data flows and architecture decisions:
-`docs/superpowers/specs/2026-05-19-walter-advanced-pipeline-design.md`
+Widget appears bottom-right. Telegram bot starts if credentials are set.
+Local voice works once Groq key is saved via Settings.

@@ -11,6 +11,7 @@ const session             = require('./session');
 const registry            = require('./prefix-registry');
 const { advanceMacro }    = require('./macro-runner');
 const conversation        = require('./conversation');
+const { cancelCurrentPlan } = require('./orchestrator');
 
 const TELEGRAM_MAX = 4000;
 
@@ -141,12 +142,26 @@ function startBot(notify) {
     }
   });
 
+  // ── /abort command ─────────────────────────────────────────────────────────
+
+  bot.command('abort', async (ctx) => {
+    if (!allowed(ctx)) return;
+    cancelCurrentPlan();
+    await ctx.reply('⛔ Plan durduruldu.');
+  });
+
   // ── Text messages ───────────────────────────────────────────────────────────
 
   bot.on('text', async (ctx) => {
     if (!allowed(ctx)) return;
     const text = ctx.message.text.trim();
     notify('status', { state: 'receiving', text: text.slice(0, 32) });
+
+    // Abort shorthand — cancel any running plan immediately
+    if (text === '/abort' || text.toLowerCase() === 'abort') {
+      cancelCurrentPlan();
+      return ctx.reply('⛔ Plan durduruldu.');
+    }
 
     // 1. Cancel words — always handled first, regardless of session state
     const isCancel = /^(iptal|cancel|çıkış|kapat|dur|exit|stop|vazgeç)$/i.test(text);
